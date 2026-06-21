@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>会议详情 · FunASR</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .tabs { display: flex; gap: 4px; border-bottom: 1px solid #e5e7eb; margin-bottom: 16px; }
+    .tabs button {
+      background: transparent;
+      color: #374151;
+      border: none;
+      padding: 10px 16px;
+      border-bottom: 2px solid transparent;
+      border-radius: 0;
+      font-size: 14px;
+    }
+    .tabs button.active { color: #2b6cb0; border-bottom-color: #2b6cb0; }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    .transcript-line {
+      padding: 8px 12px;
+      border-bottom: 1px solid #f1f5f9;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .transcript-line:hover { background: #f9fafb; }
+    .transcript-line .ts { color: #6b7280; font-family: monospace; margin-right: 10px; }
+    .transcript-line .spk { color: #2b6cb0; font-weight: 500; margin-right: 10px; }
+    .compare-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .compare-col {
+      background: #fff;
+      padding: 16px;
+      border-radius: 6px;
+      max-height: 70vh;
+      overflow-y: auto;
+      font-size: 14px;
+      line-height: 1.7;
+    }
+    .compare-col h3 { margin-top: 0; font-size: 13px; color: #6b7280; }
+    .rendered-md { background: #fff; padding: 20px; border-radius: 6px; line-height: 1.8; }
+    .rendered-md h2 { margin-top: 24px; color: #1f2937; }
+    .rendered-md h2:first-child { margin-top: 0; }
+    .rendered-md p { margin: 8px 0; }
+    .audio-bar {
+      position: sticky;
+      bottom: 0;
+      background: #fff;
+      padding: 10px 16px;
+      border-top: 1px solid #e5e7eb;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+    .retry-btn { background: #b91c1c; }
+    .export-row { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+    .export-row select { padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; }
+    .meta-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; font-size: 13px; color: #6b7280; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1><a href="/" style="color:#fff;text-decoration:none;">◄</a> <span id="m-title">会议</span></h1>
+  </header>
+  <main class="container">
+    <div class="meta-row">
+      <span id="m-meta"></span>
+      <div class="export-row">
+        <select id="export-format">
+          <option value="md">整理版 .md</option>
+          <option value="txt">原文 .txt</option>
+          <option value="srt">字幕 .srt</option>
+        </select>
+        <button id="export-btn">导出</button>
+        <button id="retry-btn" class="retry-btn hidden">重试 LLM</button>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="raw">原文</button>
+      <button class="tab-btn" data-tab="processed">整理版</button>
+      <button class="tab-btn" data-tab="summary">会议总结</button>
+      <button class="tab-btn" data-tab="compare">原文↔整理对照</button>
+    </div>
+
+    <div id="tab-raw" class="panel active">
+      <div id="transcript"></div>
+    </div>
+
+    <div id="tab-processed" class="panel">
+      <div id="processed-md" class="rendered-md"></div>
+    </div>
+
+    <div id="tab-summary" class="panel">
+      <div id="summary-md" class="rendered-md"></div>
+    </div>
+
+    <div id="tab-compare" class="panel">
+      <div class="compare-grid">
+        <div class="compare-col" id="compare-raw">
+          <h3>原文（按时间戳）</h3>
+          <div id="compare-raw-body"></div>
+        </div>
+        <div class="compare-col" id="compare-processed">
+          <h3>整理版</h3>
+          <div id="compare-processed-body"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <div class="audio-bar">
+    <audio id="audio-player" controls style="width:100%;"></audio>
+  </div>
+
+  <script>
+    const pathParts = location.pathname.split('/');
+    const meetingId = pathParts[pathParts.length - 1];
+    const audioPlayer = document.getElementById('audio-player');
+
+    function fmtTs(ms) {
+      const s = Math.floor(ms / 1000);
+      const m = Math.floor(s / 60);
+      const sec = s % 60;
+      return `${m}:${String(sec).padStart(2,'0')}`;
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    function renderMd(md) {
+      if (!md) return '<p style="color:#9ca3af;">（空）</p>';
+      const lines = escapeHtml(md).split('\n');
+      let html = '';
+      let inList = false;
+      for (let line of lines) {
+        if (line.startsWith('## ')) {
+          if (inList) { html += '</ul>'; inList = false; }
+          html += `<h2>${line.slice(3)}</h2>`;
+        } else if (line.match(/^- \[/)) {
+          if (!inList) { html += '<ul>'; inList = true; }
+          html += `<li>${line.replace(/^- \[ \] /, '☐ ').replace(/^- \[x\] /i, '☑ ')}</li>`;
+        } else if (line.trim() === '') {
+          if (inList) { html += '</ul>'; inList = false; }
+        } else {
+          if (inList) { html += '</ul>'; inList = false; }
+          html += `<p>${line}</p>`;
+        }
+      }
+      if (inList) html += '</ul>';
+      return html;
+    }
+
+    audioPlayer.src = `/api/meetings/${meetingId}/audio`;
+
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
+      });
+    });
+
+    document.getElementById('export-btn').addEventListener('click', () => {
+      const fmt = document.getElementById('export-format').value;
+      location.href = `/api/meetings/${meetingId}/export?format=${fmt}`;
+    });
+
+    document.getElementById('retry-btn').addEventListener('click', async () => {
+      if (!confirm('重新调用 LLM 整理 + 总结？')) return;
+      const r = await fetch(`/api/meetings/${meetingId}/retry-llm`, { method: 'POST' });
+      const { task_id } = await r.json();
+      alert('已提交，稍后刷新页面查看');
+      location.reload();
+    });
+
+    function renderRaw(container, sentences, clickable) {
+      container.innerHTML = '';
+      if (!sentences || !sentences.length) {
+        container.innerHTML = '<p style="color:#9ca3af;">（无转录结果）</p>';
+        return;
+      }
+      for (const s of sentences) {
+        const div = document.createElement('div');
+        div.className = 'transcript-line';
+        div.innerHTML = `<span class="ts">[${fmtTs(s.start)}]</span><span class="spk">说话人${s.spk}</span><span>${escapeHtml(s.text)}</span>`;
+        if (clickable) {
+          div.addEventListener('click', () => {
+            audioPlayer.currentTime = s.start / 1000;
+            audioPlayer.play();
+          });
+        }
+        container.appendChild(div);
+      }
+    }
+
+    function bindScrollSync() {
+      const a = document.getElementById('compare-raw');
+      const b = document.getElementById('compare-processed');
+      let syncing = false;
+      a.addEventListener('scroll', () => {
+        if (syncing) return;
+        syncing = true;
+        b.scrollTop = a.scrollTop;
+        setTimeout(() => syncing = false, 50);
+      });
+      b.addEventListener('scroll', () => {
+        if (syncing) return;
+        syncing = true;
+        a.scrollTop = b.scrollTop;
+        setTimeout(() => syncing = false, 50);
+      });
+    }
+
+    function statusLabel(s) {
+      return {done:'完成', error:'失败', pending:'处理中'}[s] || s;
+    }
+
+    async function load() {
+      try {
+        const r = await fetch(`/api/meetings/${meetingId}`);
+        if (!r.ok) { alert('会议不存在'); location.href = '/'; return; }
+        const data = await r.json();
+        const meta = data.meta;
+        document.getElementById('m-title').textContent = meta.title;
+        const durationStr = meta.duration_ms
+          ? `${Math.floor(meta.duration_ms/60000)}分${Math.floor((meta.duration_ms%60000)/1000)}秒`
+          : '--';
+        document.getElementById('m-meta').textContent =
+          `${meta.created_at} · ${durationStr} · ${meta.spk_count} 人 · ${statusLabel(meta.status)}`;
+        if (meta.status === 'error') {
+          document.getElementById('retry-btn').classList.remove('hidden');
+        }
+        const sentences = (data.raw && data.raw.sentences) || [];
+        renderRaw(document.getElementById('transcript'), sentences, true);
+        renderRaw(document.getElementById('compare-raw-body'), sentences, false);
+        document.getElementById('processed-md').innerHTML = renderMd(data.processed);
+        document.getElementById('summary-md').innerHTML = renderMd(data.summary);
+        document.getElementById('compare-processed-body').innerHTML = renderMd(data.processed);
+        bindScrollSync();
+      } catch (e) {
+        alert('加载失败: ' + e.message);
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>

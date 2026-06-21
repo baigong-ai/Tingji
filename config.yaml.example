@@ -1,0 +1,24 @@
+asr:
+  cache_dir: "./models"
+  hub: "ms"
+  batch_size_s: 300
+  batch_size_threshold_s: 60
+  hotword: ""
+
+llm:
+  mode: api
+  api:
+    base_url: "https://open.bigmodel.cn/api/paas/v4"
+    api_key: "${LLM_API_KEY}"
+    model: "glm-4-flash"
+  ollama:
+    base_url: "http://localhost:11434/v1"
+    model: "qwen2.5:7b"
+    api_key: "ollama"
+  polish_chunk_minutes: 6
+  temperature: 0.3
+  max_retries: 2
+
+server:
+  host: "127.0.0.1"
+  port: 8000

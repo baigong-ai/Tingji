@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>FunASR 会议转录</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>FunASR 会议转录</h1>
+  </header>
+  <main class="container">
+    <section class="upload-card">
+      <div id="dropzone" class="dropzone">
+        <p>📁 拖拽音频文件到此，或点击选择</p>
+        <p class="hint">支持 wav / mp3 / m4a / aac / flac / ogg / opus</p>
+        <input id="file-input" type="file" accept="audio/*,.m4a,.aac,.opus" hidden>
+      </div>
+      <div class="form-row">
+        <label>会议标题 <input id="title" type="text" placeholder="例如：产品周会"></label>
+        <button id="submit-btn" disabled>开始转录</button>
+      </div>
+      <div id="progress" class="progress hidden">
+        <div class="bar"><div id="bar-fill" class="bar-fill"></div></div>
+        <div id="progress-text" class="progress-text"></div>
+      </div>
+      <div id="error" class="error hidden"></div>
+    </section>
+
+    <section>
+      <h2>历史会议</h2>
+      <ul id="history" class="history-list"></ul>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>

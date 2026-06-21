@@ -29,6 +29,8 @@ models/
 .env
 .env.*
 !.env.example
+config.yaml
+!.gitignore
 
 # Editor
 .vscode/
