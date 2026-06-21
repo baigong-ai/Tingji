@@ -30,6 +30,7 @@ models/
 .env.*
 !.env.example
 config.yaml
+dns_hosts.txt
 !.gitignore
 
 # Editor

@@ -10,12 +10,18 @@ from fastapi.staticfiles import StaticFiles
 
 from app import asr, audio, storage, tasks
 from app.config import Config, load_config
+from app.dns_hosts import install_if_present as install_dns_hosts
 
 log = logging.getLogger(__name__)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
+
+# Optional DNS override: read dns_hosts.txt if present (helps on machines
+# where mDNSResponder can't resolve modelscope.cn but direct IP access works).
+if install_dns_hosts():
+    log.info("dns_hosts.txt loaded")
 
 CONFIG_PATH = Path("config.yaml")
 config: Config = load_config(str(CONFIG_PATH)) if CONFIG_PATH.exists() else None

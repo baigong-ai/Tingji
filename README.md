@@ -108,6 +108,37 @@ llm:
 - M4 16GB 估算耗时：音频时长 × 0.25（例：60 分钟音频约 15 分钟处理）
 - 进度条为估算，ASR 阶段无精确回调
 
+## 故障排查
+
+### 首次启动卡在"语音识别"或下载超时
+
+FunASR 从 modelscope.cn 下载模型。如果系统 DNS 或网络问题导致解析失败：
+
+```bash
+# 1. 测试直连
+curl -sS -o /dev/null -w "%{http_code}\n" https://www.modelscope.cn/
+
+# 2. 如果 curl 通但 Python 不通（macOS mDNSResponder 偶发问题）
+#    用 dns_hosts.txt 绕过系统 DNS：
+cp dns_hosts.txt.example dns_hosts.txt
+# 编辑 dns_hosts.txt，填入 curl 测试可用的 IP（用 dig / nslookup 查）
+# 启动服务时会自动加载
+
+# 3. 如果用代理
+export HTTPS_PROXY=http://your-proxy:port
+./run.sh
+```
+
+### LLM 调用失败
+
+- API 模式：检查 `LLM_API_KEY` 环境变量是否设置、`base_url` 是否正确
+- Ollama 模式：检查 `ollama serve` 是否启动、模型名是否在 `ollama list` 中
+- 整理失败的句子会标记 `[整理失败]`，可在详情页点"重试 LLM"
+
+### 推理模型（Qwen3、DeepSeek-R1）输出含思考过程
+
+代码已自动剥离 `<think>...</think>` 块。如果换用其他会输出推理过程的模型，请保留此清理逻辑。
+
 ## 已知限制
 
 - 说话人分离基于音色聚类，可能因设备/位置变化拆分或合并 ID

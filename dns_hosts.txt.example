@@ -1,0 +1,5 @@
+# Optional DNS override. Each line: IP HOSTNAME
+# Use this if your system can't resolve modelscope.cn but direct IP works.
+# Test the IP first with: curl --resolve www.modelscope.cn:443:<IP> https://www.modelscope.cn/
+47.92.141.220 www.modelscope.cn
+47.92.141.220 modelscope.cn

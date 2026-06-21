@@ -27,6 +27,7 @@ def get_model(cfg: ASRConfig):
             vad_revision="v2.0.4",
             punc_model="ct-punc",
             spk_model="cam++",
+            disable_update=True,
         )
         log.info("FunASR models loaded")
     return _model

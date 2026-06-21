@@ -1,4 +1,5 @@
 import logging
+import re
 
 from openai import OpenAI
 
@@ -52,6 +53,11 @@ def _model_name(cfg: LLMConfig) -> str:
     return cfg.api.model if cfg.mode == "api" else cfg.ollama.model
 
 
+def _clean_response(text: str) -> str:
+    """Strip <think>...</think> reasoning blocks emitted by some models."""
+    return re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL).strip()
+
+
 def _chat(prompt: str, cfg: LLMConfig) -> str:
     client = _client(cfg)
     resp = client.chat.completions.create(
@@ -59,7 +65,7 @@ def _chat(prompt: str, cfg: LLMConfig) -> str:
         messages=[{"role": "user", "content": prompt}],
         temperature=cfg.temperature,
     )
-    return resp.choices[0].message.content or ""
+    return _clean_response(resp.choices[0].message.content or "")
 
 
 def chunk_sentences(sentences: list[dict], minutes: int) -> list[list[dict]]:
