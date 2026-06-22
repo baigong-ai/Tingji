@@ -38,3 +38,7 @@ dns_hosts.txt
 .idea/
 *.swp
 .DS_Store
+
+# Runtime logs
+nohup.out
+wsl/
