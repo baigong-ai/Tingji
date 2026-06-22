@@ -36,8 +36,15 @@ def get_model(cfg: ASRConfig):
             return _model
         os.environ["FUNASR_HUB"] = cfg.hub
         os.environ["MODELSCOPE_CACHE"] = cfg.cache_dir
+        import torch
+        if torch.cuda.is_available():
+            device = f"cuda ({torch.cuda.get_device_name(0)})"
+        elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+            device = "mps"
+        else:
+            device = "cpu"
+        log.info("loading FunASR models from %s (hub=%s, device=%s)...", cfg.cache_dir, cfg.hub, device)
         from funasr import AutoModel
-        log.info("loading FunASR models from %s (hub=%s)...", cfg.cache_dir, cfg.hub)
         _model = AutoModel(
             model=_resolve_model("paraformer-zh", cfg.cache_dir),
             vad_model=_resolve_model("fsmn-vad", cfg.cache_dir),

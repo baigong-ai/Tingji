@@ -16,6 +16,56 @@ header h1 { margin: 0; font-size: 18px; }
   margin: 24px auto;
   padding: 0 16px;
 }
+.access-info {
+  background: #eef6ff;
+  border: 1px solid #cfe3fb;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: #1f3a5f;
+}
+.access-info .title {
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: #2b3a55;
+}
+.access-info ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.access-info li {
+  padding: 3px 0;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.access-info code {
+  background: #fff;
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid #d8e4f6;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  user-select: all;
+}
+.access-info .tag {
+  display: inline-block;
+  min-width: 56px;
+  font-size: 11px;
+  color: #5b7197;
+}
+.access-info .copy {
+  margin-left: auto;
+  background: #fff;
+  border: 1px solid #cfe3fb;
+  color: #2b6cb0;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+}
 .upload-card, .history-list {
   background: #fff;
   border-radius: 8px;

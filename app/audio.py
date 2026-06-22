@@ -1,13 +1,18 @@
 import json
+import platform
 import shutil
 import subprocess
 
 
 def ensure_ffmpeg() -> None:
     if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
-        raise RuntimeError(
-            "ffmpeg/ffprobe not found. Install via: brew install ffmpeg"
-        )
+        system = platform.system()
+        hint = {
+            "Darwin": "brew install ffmpeg",
+            "Linux": "sudo apt install ffmpeg  # or: sudo dnf install ffmpeg",
+            "Windows": "winget install ffmpeg  # or: choco install ffmpeg",
+        }.get(system, "install ffmpeg via your package manager")
+        raise RuntimeError(f"ffmpeg/ffprobe not found. {hint}")
 
 
 def convert_to_wav(src: str, dst: str) -> None:

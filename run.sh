@@ -28,5 +28,29 @@ if grep -q 'mode: api' config.yaml && [ -z "${LLM_API_KEY:-}" ]; then
   echo "警告：LLM_API_KEY 未设置，LLM 整理/总结将不可用"
 fi
 
-echo "启动: http://${HOST}:${PORT}"
+echo "启动服务，监听 ${HOST}:${PORT}"
+if [ "$HOST" = "0.0.0.0" ] || [ "$HOST" = "::" ]; then
+  echo "可访问地址："
+  echo "  本机:    http://127.0.0.1:${PORT}"
+  if command -v ipconfig >/dev/null 2>&1; then
+    for iface in en0 en1 eth0 eth1; do
+      ip=$(ipconfig getifaddr "$iface" 2>/dev/null || true)
+      if [ -n "$ip" ]; then
+        echo "  局域网:  http://${ip}:${PORT}  (${iface})"
+      fi
+    done
+  elif command -v ip >/dev/null 2>&1; then
+    ip -4 addr 2>/dev/null \
+      | awk '/inet / && $2 !~ /^127/ {split($2, a, "/"); print a[1]}' \
+      | sort -u \
+      | while read -r ip; do
+          echo "  局域网:  http://${ip}:${PORT}"
+        done
+  fi
+  if command -v hostname >/dev/null 2>&1; then
+    echo "  主机名:  http://$(hostname):${PORT}"
+  fi
+else
+  echo "可访问地址: http://${HOST}:${PORT}"
+fi
 exec uvicorn app.main:app --host "$HOST" --port "$PORT"

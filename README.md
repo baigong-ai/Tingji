@@ -14,12 +14,13 @@
 
 ## 环境要求
 
-- macOS / Linux
+- macOS / Linux / Windows（WSL2）
 - Python 3.11（用 uv 管理）
 - [uv](https://github.com/astral-sh/uv)
-- ffmpeg（macOS：`brew install ffmpeg`）
-- Git LFS（macOS：`brew install git-lfs`）—— 用于预下载模型
+- ffmpeg（macOS：`brew install ffmpeg`；Linux：`sudo apt install ffmpeg`）
+- Git LFS（macOS：`brew install git-lfs`；Linux：`sudo apt install git-lfs`）—— 用于预下载模型
 - 首次启动会下载约 3-4GB FunASR 模型
+- Windows 用户请看 [WSL2 + GPU 部署指南](docs/wsl-deploy.md)
 
 ## 快速开始
 

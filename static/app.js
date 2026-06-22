@@ -133,4 +133,35 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+async function loadAccessInfo() {
+  const box = document.getElementById('access-info');
+  try {
+    const r = await fetch('/api/info');
+    const info = await r.json();
+    const items = (info.urls || []).map((u, i) => {
+      const tag = i === 0 && info.lan_ips && info.lan_ips.length
+        ? '本机 LAN IP'
+        : (u.includes('127.0.0.1') ? '本机' : (u.includes(info.hostname) ? '主机名' : '局域网'));
+      return `<li><span class="tag">${tag}</span><code>${u}</code><button class="copy" data-url="${u}">复制</button></li>`;
+    }).join('');
+    box.innerHTML = `
+      <div class="title">访问地址${info.hostname ? ` · 主机名 ${escapeHtml(info.hostname)}` : ''}</div>
+      <ul>${items}</ul>
+    `;
+    box.classList.remove('hidden');
+    box.querySelectorAll('.copy').forEach(b => {
+      b.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(b.dataset.url);
+          b.textContent = '已复制';
+          setTimeout(() => b.textContent = '复制', 1500);
+        } catch { b.textContent = '复制失败'; }
+      });
+    });
+  } catch {
+    box.classList.add('hidden');
+  }
+}
+
 loadHistory();
+loadAccessInfo();

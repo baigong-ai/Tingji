@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import socket
 from pathlib import Path
 
 from fastapi import (
@@ -78,6 +79,59 @@ async def task_status(task_id: str):
 @app.get("/api/meetings")
 async def list_meetings():
     return storage.list_meetings()
+
+
+@app.get("/api/info")
+async def server_info():
+    return _collect_server_info()
+
+
+def _collect_server_info() -> dict:
+    host = config.server.host if config else "0.0.0.0"
+    port = config.server.port if config else 8000
+    ips = _lan_ipv4s()
+    urls = []
+    if host in ("0.0.0.0", "::", ""):
+        for ip in ips:
+            urls.append(f"http://{ip}:{port}")
+        urls.append(f"http://127.0.0.1:{port}")
+    else:
+        urls.append(f"http://{host}:{port}")
+    return {
+        "hostname": socket.gethostname(),
+        "port": port,
+        "bind_host": host,
+        "urls": urls,
+        "lan_ips": ips,
+    }
+
+
+def _lan_ipv4s() -> list[str]:
+    """Return non-loopback IPv4 addresses reachable on the LAN."""
+    seen: set[str] = set()
+    out: list[str] = []
+    try:
+        hostname = socket.gethostname()
+        for info in socket.getaddrinfo(hostname, None, socket.AF_INET):
+            ip = info[4][0]
+            if ip.startswith("127.") or ip in seen:
+                continue
+            seen.add(ip)
+            out.append(ip)
+    except Exception:
+        pass
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(0.5)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        if not ip.startswith("127.") and ip not in seen:
+            out.insert(0, ip)
+            seen.add(ip)
+    except Exception:
+        pass
+    return out
 
 
 @app.get("/api/meetings/{meeting_id}")
