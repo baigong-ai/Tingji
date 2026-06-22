@@ -61,7 +61,7 @@ function pollTask(taskId, meetingId) {
       const r = await fetch(`/api/tasks/${taskId}`);
       const s = await r.json();
       setProgress(s.progress, s.step);
-      if (s.status === 'done') {
+      if (s.status === 'done' || s.status === 'asr_done') {
         clearInterval(timer);
         location.href = `/m/${meetingId}`;
       } else if (s.status === 'error') {
@@ -117,7 +117,7 @@ function fmtDuration(ms) {
 
 function statusLabel(s) {
   return {
-    pending: '排队', converting: '转换中', asr_running: '识别中',
+    pending: '排队', converting: '转换中', asr_running: '识别中', asr_done: '待整理',
     llm_polishing: '整理中', llm_summarizing: '总结中', done: '完成', error: '失败',
   }[s] || s;
 }

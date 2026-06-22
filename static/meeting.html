@@ -150,6 +150,7 @@
     let allSpkCount = 0;
     let currentProcessed = '';
     let currentSummary = '';
+    let currentStatus = '';
     let activeLine = null;
     let lastIdx = -1;
 
@@ -194,11 +195,32 @@
       location.href = `/api/meetings/${meetingId}/export?format=${fmt}`;
     });
     document.getElementById('retry-btn').addEventListener('click', async () => {
-      if (!confirm('重新调用 LLM 整理 + 总结？')) return;
-      const r = await fetch(`/api/meetings/${meetingId}/retry-llm`, { method: 'POST' });
-      await r.json();
-      alert('已提交，稍后刷新页面查看');
-      location.reload();
+      const btn = document.getElementById('retry-btn');
+      const msg = currentStatus === 'asr_done' ? '开始整理 + 总结？' : '重新调用 LLM 整理 + 总结？';
+      if (!confirm(msg)) return;
+      btn.disabled = true;
+      const origText = btn.textContent;
+      try {
+        const r = await fetch(`/api/meetings/${meetingId}/retry-llm`, { method: 'POST' });
+        if (!r.ok) throw new Error('提交失败');
+        const { task_id } = await r.json();
+        btn.textContent = '整理中…';
+        await new Promise((resolve, reject) => {
+          const timer = setInterval(async () => {
+            try {
+              const s = await fetch(`/api/tasks/${task_id}`).then(x => x.json());
+              btn.textContent = `整理中… ${s.progress}%`;
+              if (s.status === 'done') { clearInterval(timer); resolve(); }
+              else if (s.status === 'error') { clearInterval(timer); reject(new Error(s.error || '整理失败')); }
+            } catch (e) { clearInterval(timer); reject(e); }
+          }, 2000);
+        });
+        location.reload();
+      } catch (e) {
+        btn.disabled = false;
+        btn.textContent = origText;
+        alert('整理失败: ' + e.message);
+      }
     });
 
     function renderRaw(container, sentences, clickable) {
@@ -526,7 +548,7 @@
     }
 
     function statusLabel(s) {
-      return {done:'完成', error:'失败', pending:'处理中', converting:'处理中', asr_running:'处理中', llm_polishing:'处理中', llm_summarizing:'处理中'}[s] || s;
+      return {done:'完成', asr_done:'待整理', error:'失败', pending:'处理中', converting:'处理中', asr_running:'处理中', llm_polishing:'处理中', llm_summarizing:'处理中'}[s] || s;
     }
 
     async function load() {
@@ -546,7 +568,14 @@
           : '--';
         document.getElementById('m-meta').textContent =
           `${meta.created_at} · ${durationStr} · ${meta.spk_count} 人 · ${statusLabel(meta.status)}`;
-        if (meta.status === 'error') document.getElementById('retry-btn').classList.remove('hidden');
+        currentStatus = meta.status;
+        const retryBtn = document.getElementById('retry-btn');
+        const processing = ['pending','converting','asr_running','llm_polishing','llm_summarizing'];
+        if (!processing.includes(meta.status)) {
+          retryBtn.classList.remove('hidden');
+          retryBtn.textContent = meta.status === 'asr_done' ? '开始整理'
+            : (meta.status === 'done' ? '重新整理' : '重试 LLM');
+        }
         renderAll();
         bindScrollSync();
       } catch (e) {

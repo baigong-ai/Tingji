@@ -76,10 +76,8 @@ async def run_pipeline(meeting_id: str, cfg) -> None:
         try:
             await _convert_audio(task_id, meeting_id, cfg)
             await _run_asr(task_id, meeting_id, cfg)
-            await _run_polish(task_id, meeting_id, cfg)
-            await _run_summarize(task_id, meeting_id, cfg)
-            storage.update_meta(meeting_id, status="done")
-            update(task_id, status="done", progress=100, step="完成")
+            storage.update_meta(meeting_id, status="asr_done")
+            update(task_id, status="asr_done", progress=ASR_REAL_END, step="识别完成，待整理")
         except Exception as e:
             storage.update_meta(meeting_id, status="error", error=str(e))
             update(task_id, status="error", error=str(e), step="失败")
