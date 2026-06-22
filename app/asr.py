@@ -56,14 +56,33 @@ def get_model(cfg: ASRConfig):
     return _model
 
 
+def _load_hotword_str() -> str | None:
+    """Read user hotwords (one phrase per line in data/hotwords.txt) and
+    convert to FunASR's space-separated-char format (e.g. "丁老师" -> "丁 老 师").
+    User-edited corrections feed back here to bias later recognition."""
+    try:
+        from app import storage
+        p = Path(storage.get_data_dir()) / "hotwords.txt"
+        if not p.exists():
+            return None
+        lines = [l.strip() for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
+        if not lines:
+            return None
+        return "\n".join(" ".join(list(line)) for line in lines)
+    except Exception as e:
+        log.warning("load hotwords failed: %s", e)
+        return None
+
+
 def transcribe(wav_path: str, cfg: ASRConfig) -> dict:
     model = get_model(cfg)
+    hotword = _load_hotword_str() or cfg.hotword or None
     res = model.generate(
         input=wav_path,
         batch_size_s=cfg.batch_size_s,
         batch_size_threshold_s=cfg.batch_size_threshold_s,
         sentence_timestamp=True,
-        hotword=cfg.hotword or None,
+        hotword=hotword,
     )
     return normalize(res)
 

@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
+export PATH="$HOME/.local/bin:$PATH"
 
 if ! command -v ffmpeg >/dev/null 2>&1; then
-  echo "需要先安装 ffmpeg: brew install ffmpeg"
+  echo "需要先安装 ffmpeg (macOS: brew install ffmpeg / Linux: sudo apt install ffmpeg)"
   exit 1
 fi
 
 if [ ! -d .venv ]; then
   echo "creating venv..."
-  uv venv --python 3.11
+  uv venv
 fi
 source .venv/bin/activate
 uv pip install -e .

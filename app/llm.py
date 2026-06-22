@@ -68,6 +68,14 @@ def _chat(prompt: str, cfg: LLMConfig) -> str:
     return _clean_response(resp.choices[0].message.content or "")
 
 
+def test_connection(cfg: LLMConfig) -> tuple[bool, str]:
+    try:
+        reply = _chat("用中文说你好", cfg)
+        return True, reply
+    except Exception as e:
+        return False, str(e)
+
+
 def chunk_sentences(sentences: list[dict], minutes: int) -> list[list[dict]]:
     if not sentences:
         return []

@@ -3,63 +3,64 @@
 <head>
   <meta charset="utf-8">
   <title>会议详情 · FunASR</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v=3">
   <style>
+    .nav-sticky { position: sticky; top: 0; background: #fff; z-index: 10; padding-top: 8px; }
+    .search-bar { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+    .search-bar input { flex: 1; padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px; }
+    .search-count { font-size: 12px; color: #6b7280; min-width: 46px; text-align: center; }
     .tabs { display: flex; gap: 4px; border-bottom: 1px solid #e5e7eb; margin-bottom: 16px; }
     .tabs button {
-      background: transparent;
-      color: #374151;
-      border: none;
-      padding: 10px 16px;
-      border-bottom: 2px solid transparent;
-      border-radius: 0;
-      font-size: 14px;
+      background: transparent; color: #374151; border: none;
+      padding: 10px 16px; border-bottom: 2px solid transparent; border-radius: 0; font-size: 14px; cursor: pointer;
     }
+    .tabs button:hover { color: #2b6cb0; }
     .tabs button.active { color: #2b6cb0; border-bottom-color: #2b6cb0; }
     .panel { display: none; }
     .panel.active { display: block; }
     .transcript-line {
-      padding: 8px 12px;
-      border-bottom: 1px solid #f1f5f9;
-      cursor: pointer;
-      font-size: 14px;
+      padding: 8px 12px; border-bottom: 1px solid #f1f5f9; cursor: pointer; font-size: 14px;
+      border-left: 3px solid transparent; transition: background .15s, border-color .15s;
     }
     .transcript-line:hover { background: #f9fafb; }
+    .transcript-line.active { background: #e0f2fe; border-left-color: #2b6cb0; }
     .transcript-line .ts { color: #6b7280; font-family: monospace; margin-right: 10px; }
     .transcript-line .spk { color: #2b6cb0; font-weight: 500; margin-right: 10px; }
-    .compare-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-    }
+    .compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
     .compare-col {
-      background: #fff;
-      padding: 16px;
-      border-radius: 6px;
-      max-height: 70vh;
-      overflow-y: auto;
-      font-size: 14px;
-      line-height: 1.7;
+      background: #fff; padding: 16px; border-radius: 6px;
+      max-height: 70vh; overflow-y: auto; font-size: 14px; line-height: 1.7;
     }
     .compare-col h3 { margin-top: 0; font-size: 13px; color: #6b7280; }
     .rendered-md { background: #fff; padding: 20px; border-radius: 6px; line-height: 1.8; }
-    .rendered-md h2 { margin-top: 24px; color: #1f2937; }
-    .rendered-md h2:first-child { margin-top: 0; }
+    .rendered-md h1, .rendered-md h2, .rendered-md h3 { margin-top: 24px; color: #1f2937; }
+    .rendered-md h1:first-child, .rendered-md h2:first-child, .rendered-md h3:first-child { margin-top: 0; }
     .rendered-md p { margin: 8px 0; }
+    .rendered-md ul, .rendered-md ol { margin: 6px 0; padding-left: 22px; }
+    .rendered-md li { margin: 3px 0; }
+    .rendered-md strong { font-weight: 600; }
+    .rendered-md code { background: #f1f5f9; padding: 1px 5px; border-radius: 3px; font-family: ui-monospace, monospace; font-size: 13px; }
+    .proc-seg { padding: 8px 12px; border-left: 3px solid transparent; border-radius: 3px; transition: background .15s, border-color .15s; }
+    .proc-seg.active { background: #e0f2fe; border-left-color: #2b6cb0; }
+    mark.search-hit { background: #fde68a; padding: 0 1px; border-radius: 2px; color: #1f2937; }
+    mark.search-hit.current { background: #f59e0b; color: #fff; }
     .audio-bar {
-      position: sticky;
-      bottom: 0;
-      background: #fff;
-      padding: 10px 16px;
-      border-top: 1px solid #e5e7eb;
-      display: flex;
-      gap: 12px;
-      align-items: center;
+      position: sticky; bottom: 0; background: #fff;
+      padding: 10px 16px; border-top: 1px solid #e5e7eb; display: flex; gap: 12px; align-items: center;
     }
     .retry-btn { background: #b91c1c; }
     .export-row { display: flex; gap: 8px; align-items: center; margin-left: auto; }
     .export-row select { padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; }
-    .meta-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; font-size: 13px; color: #6b7280; }
+    .meta-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-size: 13px; color: #6b7280; }
+    .speakers-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
+    .speakers-bar .label { font-size: 12px; color: #9ca3af; margin-right: 4px; }
+    .spk-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: #eef6ff; border: 1px solid #cfe3fb; color: #2b6cb0;
+      padding: 5px 12px; border-radius: 16px; font-size: 13px; cursor: pointer; transition: background .15s;
+    }
+    .spk-chip:hover { background: #dbeafe; }
+    .spk-chip .edit { color: #6b7280; font-size: 11px; }
   </style>
 </head>
 <body>
@@ -79,26 +80,32 @@
         <button id="retry-btn" class="retry-btn hidden">重试 LLM</button>
       </div>
     </div>
+    <div id="speakers-bar" class="speakers-bar"></div>
 
-    <div class="tabs">
-      <button class="tab-btn active" data-tab="raw">原文</button>
-      <button class="tab-btn" data-tab="processed">整理版</button>
-      <button class="tab-btn" data-tab="summary">会议总结</button>
-      <button class="tab-btn" data-tab="compare">原文↔整理对照</button>
+    <div class="nav-sticky">
+      <div class="search-bar">
+        <input id="search-input" type="text" placeholder="搜索当前页内容（原文/整理版/总结/对照）…">
+        <span id="search-count" class="search-count"></span>
+        <button id="search-prev" type="button" class="mini" title="上一个 (Shift+Enter)">▲</button>
+        <button id="search-next" type="button" class="mini" title="下一个 (Enter)">▼</button>
+      </div>
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="raw">原文</button>
+        <button class="tab-btn" data-tab="processed">整理版</button>
+        <button class="tab-btn" data-tab="summary">会议总结</button>
+        <button class="tab-btn" data-tab="compare">原文↔整理对照</button>
+      </div>
     </div>
 
     <div id="tab-raw" class="panel active">
       <div id="transcript"></div>
     </div>
-
     <div id="tab-processed" class="panel">
       <div id="processed-md" class="rendered-md"></div>
     </div>
-
     <div id="tab-summary" class="panel">
       <div id="summary-md" class="rendered-md"></div>
     </div>
-
     <div id="tab-compare" class="panel">
       <div class="compare-grid">
         <div class="compare-col" id="compare-raw">
@@ -113,14 +120,38 @@
     </div>
   </main>
 
+  <div id="edit-modal" class="modal hidden">
+    <div class="modal-card">
+      <h3>编辑句子</h3>
+      <p class="hint">双击句子打开此框。保存后原文/导出/对照都会用新文本。</p>
+      <textarea id="edit-text" rows="4" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:4px;font-size:14px;resize:vertical;font-family:inherit;box-sizing:border-box;"></textarea>
+      <label style="display:flex;align-items:center;gap:6px;margin:10px 0;font-size:13px;color:#4b5563;cursor:pointer;">
+        <input id="edit-add-hotword" type="checkbox"> 把这句加入热词（提升后续识别，建议挑关键短语）
+      </label>
+      <div id="edit-hint" class="settings-result"></div>
+      <div class="modal-actions">
+        <button id="edit-cancel" type="button">取消</button>
+        <button id="edit-save" type="button" class="primary">保存</button>
+      </div>
+    </div>
+  </div>
+
   <div class="audio-bar">
     <audio id="audio-player" controls style="width:100%;"></audio>
   </div>
 
+  <script src="/static/marked.min.js?v=1"></script>
   <script>
     const pathParts = location.pathname.split('/');
     const meetingId = pathParts[pathParts.length - 1];
     const audioPlayer = document.getElementById('audio-player');
+    let speakerNames = {};
+    let allSentences = [];
+    let allSpkCount = 0;
+    let currentProcessed = '';
+    let currentSummary = '';
+    let activeLine = null;
+    let lastIdx = -1;
 
     function fmtTs(ms) {
       const s = Math.floor(ms / 1000);
@@ -128,32 +159,20 @@
       const sec = s % 60;
       return `${m}:${String(sec).padStart(2,'0')}`;
     }
-
     function escapeHtml(s) {
       return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     }
-
+    function spkLabel(spk) {
+      return speakerNames[String(spk)] || speakerNames[spk] || `说话人${spk}`;
+    }
+    function applySpeakerNamesToMd(md) {
+      if (!md) return md;
+      return md.replace(/说话人\s*(\d+)/g, (m, n) => speakerNames[n] ? speakerNames[n] : `说话人${n}`);
+    }
     function renderMd(md) {
+      md = applySpeakerNamesToMd(md);
       if (!md) return '<p style="color:#9ca3af;">（空）</p>';
-      const lines = escapeHtml(md).split('\n');
-      let html = '';
-      let inList = false;
-      for (let line of lines) {
-        if (line.startsWith('## ')) {
-          if (inList) { html += '</ul>'; inList = false; }
-          html += `<h2>${line.slice(3)}</h2>`;
-        } else if (line.match(/^- \[/)) {
-          if (!inList) { html += '<ul>'; inList = true; }
-          html += `<li>${line.replace(/^- \[ \] /, '☐ ').replace(/^- \[x\] /i, '☑ ')}</li>`;
-        } else if (line.trim() === '') {
-          if (inList) { html += '</ul>'; inList = false; }
-        } else {
-          if (inList) { html += '</ul>'; inList = false; }
-          html += `<p>${line}</p>`;
-        }
-      }
-      if (inList) html += '</ul>';
-      return html;
+      return marked.parse(md);
     }
 
     audioPlayer.src = `/api/meetings/${meetingId}/audio`;
@@ -164,6 +183,9 @@
         document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
         btn.classList.add('active');
         document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
+        activeLine = null;
+        lastIdx = -1;
+        doSearch(document.getElementById('search-input').value);
       });
     });
 
@@ -171,11 +193,10 @@
       const fmt = document.getElementById('export-format').value;
       location.href = `/api/meetings/${meetingId}/export?format=${fmt}`;
     });
-
     document.getElementById('retry-btn').addEventListener('click', async () => {
       if (!confirm('重新调用 LLM 整理 + 总结？')) return;
       const r = await fetch(`/api/meetings/${meetingId}/retry-llm`, { method: 'POST' });
-      const { task_id } = await r.json();
+      await r.json();
       alert('已提交，稍后刷新页面查看');
       location.reload();
     });
@@ -186,40 +207,326 @@
         container.innerHTML = '<p style="color:#9ca3af;">（无转录结果）</p>';
         return;
       }
-      for (const s of sentences) {
+      for (let i = 0; i < sentences.length; i++) {
+        const s = sentences[i];
         const div = document.createElement('div');
         div.className = 'transcript-line';
-        div.innerHTML = `<span class="ts">[${fmtTs(s.start)}]</span><span class="spk">说话人${s.spk}</span><span>${escapeHtml(s.text)}</span>`;
+        div.dataset.start = s.start;
+        div.dataset.end = s.end;
+        div.dataset.idx = i;
+        div.title = '双击编辑';
+        div.innerHTML = `<span class="ts">[${fmtTs(s.start)}]</span><span class="spk">${escapeHtml(spkLabel(s.spk))}</span><span>${escapeHtml(s.text)}</span>`;
         if (clickable) {
           div.addEventListener('click', () => {
             audioPlayer.currentTime = s.start / 1000;
             audioPlayer.play();
           });
         }
+        div.addEventListener('dblclick', () => editSentence(i));
         container.appendChild(div);
       }
     }
+
+    // playback → highlight + autoscroll (active tab decides target)
+    audioPlayer.addEventListener('timeupdate', () => {
+      const ms = audioPlayer.currentTime * 1000;
+      if (document.getElementById('tab-raw').classList.contains('active')) {
+        highlightSentence('#transcript .transcript-line', ms);
+      } else if (document.getElementById('tab-compare').classList.contains('active')) {
+        highlightSentence('#compare-raw-body .transcript-line', ms);
+      } else if (document.getElementById('tab-processed').classList.contains('active')) {
+        highlightProcSegment(ms);
+      }
+    });
+
+    function highlightSentence(selector, ms) {
+      const lines = document.querySelectorAll(selector);
+      if (!lines.length || !allSentences.length) return;
+      let idx = (lastIdx >= 0 && allSentences[lastIdx] && ms >= allSentences[lastIdx].start) ? lastIdx : 0;
+      while (idx + 1 < allSentences.length && allSentences[idx + 1].start <= ms) idx++;
+      while (idx > 0 && allSentences[idx].start > ms) idx--;
+      lastIdx = idx;
+      const line = lines[idx];
+      if (!line || activeLine === line) return;
+      if (activeLine) activeLine.classList.remove('active');
+      line.classList.add('active');
+      activeLine = line;
+      line.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    function highlightProcSegment(ms) {
+      const segs = document.querySelectorAll('#processed-md .proc-seg[data-start]:not([data-start=""])');
+      if (!segs.length) return;
+      let target = null;
+      for (const seg of segs) {
+        const s = Number(seg.dataset.start);
+        if (!isNaN(s) && s <= ms) target = seg;
+        else if (!isNaN(s)) break;
+      }
+      if (!target || activeLine === target) return;
+      if (activeLine) activeLine.classList.remove('active');
+      target.classList.add('active');
+      activeLine = target;
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    function buildSpeakerTurns(sentences) {
+      const turns = [];
+      let cur = null;
+      for (const s of sentences) {
+        if (!cur || String(cur.spk) !== String(s.spk)) {
+          cur = { spk: String(s.spk), start: s.start };
+          turns.push(cur);
+        }
+      }
+      return turns;
+    }
+
+    function renderProcessedSegments(md, sentences) {
+      if (!md) return '<p style="color:#9ca3af;">（空）</p>';
+      const turns = buildSpeakerTurns(sentences || []);
+      const spkPtr = {};
+      const parts = md.split(/^## /m);
+      let html = '';
+      for (let i = 0; i < parts.length; i++) {
+        let block = parts[i];
+        if (!block.trim()) continue;
+        const m = block.match(/^说话人\s*(\d+)/);
+        let start = '';
+        if (m) {
+          const spk = m[1];
+          const idx = spkPtr[spk] || 0;
+          let count = 0;
+          for (const t of turns) {
+            if (t.spk === spk) {
+              if (count === idx) { start = t.start; break; }
+              count++;
+            }
+          }
+          spkPtr[spk] = idx + 1;
+          block = '## ' + block;
+        }
+        block = applySpeakerNamesToMd(block);
+        html += `<div class="proc-seg" data-start="${start}">${marked.parse(block)}</div>`;
+      }
+      return html;
+    }
+
+    function renderAll() {
+      renderSpeakersBar(allSpkCount);
+      renderRaw(document.getElementById('transcript'), allSentences, true);
+      renderRaw(document.getElementById('compare-raw-body'), allSentences, false);
+      document.getElementById('processed-md').innerHTML = renderProcessedSegments(currentProcessed, allSentences);
+      document.getElementById('summary-md').innerHTML = renderMd(currentSummary);
+      document.getElementById('compare-processed-body').innerHTML = renderProcessedSegments(currentProcessed, allSentences);
+      activeLine = null;
+      lastIdx = -1;
+    }
+
+    function renderSpeakersBar(count) {
+      const bar = document.getElementById('speakers-bar');
+      bar.innerHTML = '<span class="label">说话人（点改名）:</span>';
+      for (let i = 0; i < count; i++) {
+        const chip = document.createElement('span');
+        chip.className = 'spk-chip';
+        chip.innerHTML = `${escapeHtml(spkLabel(i))} <span class="edit">改名</span>`;
+        chip.addEventListener('click', () => editSpeaker(i));
+        bar.appendChild(chip);
+      }
+    }
+
+    async function editSpeaker(spk) {
+      const fallback = `说话人${spk}`;
+      const cur = speakerNames[String(spk)] || fallback;
+      const name = prompt(`给「${cur}」起个真实名字（留空恢复默认）:`, cur === fallback ? '' : cur);
+      if (name === null) return;
+      const trimmed = name.trim();
+      if (trimmed && trimmed !== fallback) {
+        speakerNames[String(spk)] = trimmed;
+      } else {
+        delete speakerNames[String(spk)];
+      }
+      try {
+        await fetch(`/api/meetings/${meetingId}/speakers`, {
+          method: 'PUT', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ names: speakerNames })
+        });
+      } catch (e) { alert('保存失败: ' + e.message); }
+      renderAll();
+      doSearch(document.getElementById('search-input').value);
+    }
+
+    // === sentence editing (double-click a line) ===
+    let editingIdx = -1;
+    const editModal = document.getElementById('edit-modal');
+    const editText = document.getElementById('edit-text');
+    const editHint = document.getElementById('edit-hint');
+    function editSentence(idx) {
+      if (!allSentences[idx]) return;
+      editingIdx = idx;
+      editText.value = allSentences[idx].text;
+      document.getElementById('edit-add-hotword').checked = false;
+      editHint.textContent = '';
+      editHint.style.color = '';
+      editModal.classList.remove('hidden');
+      setTimeout(() => editText.focus(), 50);
+    }
+    document.getElementById('edit-cancel').addEventListener('click', () => editModal.classList.add('hidden'));
+    editModal.addEventListener('click', e => { if (e.target === editModal) editModal.classList.add('hidden'); });
+    document.getElementById('edit-save').addEventListener('click', async () => {
+      if (editingIdx < 0) return;
+      const text = editText.value.trim();
+      if (!text) { editHint.textContent = '内容不能为空'; editHint.style.color = '#b91c1c'; return; }
+      try {
+        const r = await fetch(`/api/meetings/${meetingId}/sentence`, {
+          method: 'PUT', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ index: editingIdx, text })
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          throw new Error(err.detail || '保存失败');
+        }
+        allSentences[editingIdx].text = text;
+        document.querySelectorAll(`.transcript-line[data-idx="${editingIdx}"]`).forEach(line => {
+          const span = line.querySelector('span:last-child');
+          if (span) span.textContent = text;
+        });
+        let msg = '已保存';
+        if (document.getElementById('edit-add-hotword').checked) {
+          const d = await fetch('/api/settings/hotwords').then(r => r.json());
+          const words = d.hotwords || [];
+          if (!words.includes(text)) {
+            words.push(text);
+            await fetch('/api/settings/hotwords', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ hotwords: words }) });
+            msg += `，并加入热词（当前共 ${words.length} 个）`;
+          } else {
+            msg += '（热词已存在）';
+          }
+        }
+        editHint.style.color = '#15803d';
+        editHint.textContent = msg;
+        setTimeout(() => { editModal.classList.add('hidden'); doSearch(document.getElementById('search-input').value); }, 700);
+      } catch (e) {
+        editHint.style.color = '#b91c1c';
+        editHint.textContent = '保存失败: ' + e.message;
+      }
+    });
+
+    // === in-page search across the active panel ===
+    let searchHits = [];
+    let searchIdx = -1;
+    let searchTimer = null;
+
+    function activePanel() {
+      return document.querySelector('.panel.active') || document.body;
+    }
+    function clearSearchMarks() {
+      document.querySelectorAll('mark.search-hit').forEach(m => {
+        const parent = m.parentNode;
+        parent.replaceChild(document.createTextNode(m.textContent), m);
+        parent.normalize();
+      });
+      searchHits = [];
+      searchIdx = -1;
+    }
+    function highlightInElement(root, query) {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+        acceptNode(node) {
+          const p = node.parentNode;
+          if (!p) return NodeFilter.FILTER_REJECT;
+          const tag = p.nodeName;
+          if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'MARK') return NodeFilter.FILTER_REJECT;
+          return node.nodeValue && node.nodeValue.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+        }
+      });
+      const nodes = [];
+      while (walker.nextNode()) nodes.push(walker.currentNode);
+      const q = query.toLowerCase();
+      for (const node of nodes) {
+        const text = node.nodeValue;
+        const lower = text.toLowerCase();
+        let pos = 0, idx, found = false;
+        const frag = document.createDocumentFragment();
+        while ((idx = lower.indexOf(q, pos)) !== -1) {
+          found = true;
+          if (idx > pos) frag.appendChild(document.createTextNode(text.slice(pos, idx)));
+          const mark = document.createElement('mark');
+          mark.className = 'search-hit';
+          mark.textContent = text.slice(idx, idx + q.length);
+          frag.appendChild(mark);
+          searchHits.push(mark);
+          pos = idx + q.length;
+        }
+        if (found) {
+          if (pos < text.length) frag.appendChild(document.createTextNode(text.slice(pos)));
+          node.parentNode.replaceChild(frag, node);
+        }
+      }
+    }
+    function updateSearchCount() {
+      const el = document.getElementById('search-count');
+      el.textContent = searchHits.length ? `${searchIdx + 1}/${searchHits.length}` : (searchIdx === -1 ? '' : '0/0');
+    }
+    function showCurrentHit() {
+      document.querySelectorAll('mark.search-hit.current').forEach(m => m.classList.remove('current'));
+      if (searchIdx >= 0 && searchHits[searchIdx]) {
+        searchHits[searchIdx].classList.add('current');
+        searchHits[searchIdx].scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+    function doSearch(query) {
+      clearSearchMarks();
+      if (query && query.trim()) {
+        highlightInElement(activePanel(), query.trim());
+        searchIdx = searchHits.length ? 0 : -1;
+      }
+      showCurrentHit();
+      updateSearchCount();
+    }
+    function nextHit() {
+      if (!searchHits.length) return;
+      searchIdx = (searchIdx + 1) % searchHits.length;
+      showCurrentHit();
+      updateSearchCount();
+    }
+    function prevHit() {
+      if (!searchHits.length) return;
+      searchIdx = (searchIdx - 1 + searchHits.length) % searchHits.length;
+      showCurrentHit();
+      updateSearchCount();
+    }
+    document.getElementById('search-input').addEventListener('input', e => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => doSearch(e.target.value), 250);
+    });
+    document.getElementById('search-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (e.shiftKey) prevHit(); else nextHit();
+      } else if (e.key === 'Escape') {
+        e.target.value = '';
+        doSearch('');
+      }
+    });
+    document.getElementById('search-next').addEventListener('click', nextHit);
+    document.getElementById('search-prev').addEventListener('click', prevHit);
 
     function bindScrollSync() {
       const a = document.getElementById('compare-raw');
       const b = document.getElementById('compare-processed');
       let syncing = false;
       a.addEventListener('scroll', () => {
-        if (syncing) return;
-        syncing = true;
-        b.scrollTop = a.scrollTop;
+        if (syncing) return; syncing = true; b.scrollTop = a.scrollTop;
         setTimeout(() => syncing = false, 50);
       });
       b.addEventListener('scroll', () => {
-        if (syncing) return;
-        syncing = true;
-        a.scrollTop = b.scrollTop;
+        if (syncing) return; syncing = true; a.scrollTop = b.scrollTop;
         setTimeout(() => syncing = false, 50);
       });
     }
 
     function statusLabel(s) {
-      return {done:'完成', error:'失败', pending:'处理中'}[s] || s;
+      return {done:'完成', error:'失败', pending:'处理中', converting:'处理中', asr_running:'处理中', llm_polishing:'处理中', llm_summarizing:'处理中'}[s] || s;
     }
 
     async function load() {
@@ -228,21 +535,19 @@
         if (!r.ok) { alert('会议不存在'); location.href = '/'; return; }
         const data = await r.json();
         const meta = data.meta;
+        speakerNames = meta.speaker_names || {};
+        allSentences = (data.raw && data.raw.sentences) || [];
+        allSpkCount = meta.spk_count || 0;
+        currentProcessed = data.processed || '';
+        currentSummary = data.summary || '';
         document.getElementById('m-title').textContent = meta.title;
         const durationStr = meta.duration_ms
           ? `${Math.floor(meta.duration_ms/60000)}分${Math.floor((meta.duration_ms%60000)/1000)}秒`
           : '--';
         document.getElementById('m-meta').textContent =
           `${meta.created_at} · ${durationStr} · ${meta.spk_count} 人 · ${statusLabel(meta.status)}`;
-        if (meta.status === 'error') {
-          document.getElementById('retry-btn').classList.remove('hidden');
-        }
-        const sentences = (data.raw && data.raw.sentences) || [];
-        renderRaw(document.getElementById('transcript'), sentences, true);
-        renderRaw(document.getElementById('compare-raw-body'), sentences, false);
-        document.getElementById('processed-md').innerHTML = renderMd(data.processed);
-        document.getElementById('summary-md').innerHTML = renderMd(data.summary);
-        document.getElementById('compare-processed-body').innerHTML = renderMd(data.processed);
+        if (meta.status === 'error') document.getElementById('retry-btn').classList.remove('hidden');
+        renderAll();
         bindScrollSync();
       } catch (e) {
         alert('加载失败: ' + e.message);

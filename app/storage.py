@@ -7,6 +7,18 @@ from pathlib import Path
 DATA_DIR = Path("data")
 
 
+def set_data_dir(path: str) -> Path:
+    global DATA_DIR
+    DATA_DIR = Path(path).expanduser().resolve()
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    return DATA_DIR
+
+
+def get_data_dir() -> Path:
+    return DATA_DIR
+
+
+
 def _slugify(title: str) -> str:
     s = re.sub(r"[^\w一-龥\-]", "-", title.strip())
     s = re.sub(r"-+", "-", s).strip("-")

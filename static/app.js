@@ -22,7 +22,7 @@ fileInput.addEventListener('change', () => { if (fileInput.files.length) setFile
 
 function setFile(f) {
   selectedFile = f;
-  dropzone.querySelector('p').textContent = `📎 ${f.name} (${(f.size/1024/1024).toFixed(1)} MB)`;
+  dropzone.querySelector('p').textContent = `${f.name} (${(f.size/1024/1024).toFixed(1)} MB)`;
   submitBtn.disabled = !titleInput.value.trim();
 }
 
@@ -37,11 +37,9 @@ async function startUpload() {
   submitBtn.disabled = true;
   progressEl.classList.remove('hidden');
   setProgress(0, '上传中...');
-
   const fd = new FormData();
   fd.append('audio', selectedFile);
   fd.append('title', titleInput.value.trim());
-
   try {
     const r = await fetch('/api/upload', { method: 'POST', body: fd });
     if (!r.ok) {
@@ -119,13 +117,8 @@ function fmtDuration(ms) {
 
 function statusLabel(s) {
   return {
-    pending: '排队',
-    converting: '转换中',
-    asr_running: '识别中',
-    llm_polishing: '整理中',
-    llm_summarizing: '总结中',
-    done: '完成',
-    error: '失败',
+    pending: '排队', converting: '转换中', asr_running: '识别中',
+    llm_polishing: '整理中', llm_summarizing: '总结中', done: '完成', error: '失败',
   }[s] || s;
 }
 
@@ -138,16 +131,12 @@ async function loadAccessInfo() {
   try {
     const r = await fetch('/api/info');
     const info = await r.json();
-    const items = (info.urls || []).map((u, i) => {
-      const tag = i === 0 && info.lan_ips && info.lan_ips.length
-        ? '本机 LAN IP'
-        : (u.includes('127.0.0.1') ? '本机' : (u.includes(info.hostname) ? '主机名' : '局域网'));
+    const plat = info.platform_label ? ` · ${escapeHtml(info.platform_label)}` : '';
+    const items = (info.urls || []).map(u => {
+      const tag = u.includes('127.0.0.1') ? '本机' : '局域网';
       return `<li><span class="tag">${tag}</span><code>${u}</code><button class="copy" data-url="${u}">复制</button></li>`;
     }).join('');
-    box.innerHTML = `
-      <div class="title">访问地址${info.hostname ? ` · 主机名 ${escapeHtml(info.hostname)}` : ''}</div>
-      <ul>${items}</ul>
-    `;
+    box.innerHTML = `<div class="title">访问地址 · ${escapeHtml(info.hostname || '')}${plat}</div><ul>${items}</ul>`;
     box.classList.remove('hidden');
     box.querySelectorAll('.copy').forEach(b => {
       b.addEventListener('click', async () => {
@@ -163,5 +152,201 @@ async function loadAccessInfo() {
   }
 }
 
+// === settings modal: directory browser + LLM config ===
+const settingsBtn = document.getElementById('settings-btn');
+const settingsModal = document.getElementById('settings-modal');
+let browsePath = '';
+let previousDir = null;
+
+settingsBtn.addEventListener('click', openSettings);
+document.getElementById('settings-close-btn').addEventListener('click', () => settingsModal.classList.add('hidden'));
+settingsModal.addEventListener('click', e => { if (e.target === settingsModal) settingsModal.classList.add('hidden'); });
+
+document.querySelectorAll('.stab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.stab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.spanel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelector(`.spanel[data-spanel="${btn.dataset.stab}"]`).classList.add('active');
+    if (btn.dataset.stab === 'llm') loadLLM();
+    if (btn.dataset.stab === 'hotwords') loadHotwords();
+  });
+});
+
+async function openSettings() {
+  settingsModal.classList.remove('hidden');
+  try {
+    const s = await fetch('/api/settings').then(r => r.json());
+    await loadDir(s.data_dir || '');
+  } catch {
+    await loadDir('');
+  }
+}
+
+// --- data directory browser ---
+async function loadDir(path) {
+  try {
+    const r = await fetch('/api/browse?path=' + encodeURIComponent(path));
+    const d = await r.json();
+    browsePath = d.path;
+    document.getElementById('dir-current').textContent = d.path;
+    const wEl = document.getElementById('dir-writable');
+    if (!d.exists) { wEl.textContent = '错误: ' + (d.error || '路径不存在'); wEl.style.color = '#b91c1c'; }
+    else if (!d.writable) { wEl.textContent = '警告: 不可写'; wEl.style.color = '#b91c1c'; }
+    else { wEl.textContent = '可写'; wEl.style.color = '#15803d'; }
+    const list = document.getElementById('dir-list');
+    list.innerHTML = '';
+    if (d.parent !== null && d.parent !== undefined) {
+      const li = document.createElement('li');
+      li.className = 'dir-item dir-up';
+      li.textContent = '.. (返回上级)';
+      li.addEventListener('click', () => loadDir(d.parent));
+      list.appendChild(li);
+    }
+    for (const dir of d.dirs) {
+      const li = document.createElement('li');
+      li.className = 'dir-item';
+      li.textContent = dir.name;
+      li.addEventListener('click', () => loadDir(dir.path));
+      list.appendChild(li);
+    }
+  } catch (e) {
+    document.getElementById('dir-writable').textContent = '加载失败: ' + e.message;
+  }
+}
+document.getElementById('dir-up-btn').addEventListener('click', async () => {
+  const r = await fetch('/api/browse?path=' + encodeURIComponent(browsePath));
+  const d = await r.json();
+  if (d.parent !== null && d.parent !== undefined) loadDir(d.parent);
+});
+document.getElementById('dir-goto').addEventListener('click', () => {
+  const v = document.getElementById('data-dir-input').value.trim();
+  if (v) loadDir(v);
+});
+document.getElementById('dir-select-btn').addEventListener('click', saveDirFromBrowse);
+async function saveDirFromBrowse() {
+  const r = await fetch('/api/settings', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({data_dir: browsePath})});
+  const d = await r.json();
+  const res = document.getElementById('dir-result');
+  if (r.ok) {
+    previousDir = d.previous_dir;
+    res.textContent = '已保存: ' + d.data_dir;
+    document.getElementById('dir-migrate-btn').classList.toggle('hidden', !(d.previous_dir && d.previous_dir !== d.data_dir));
+    loadHistory();
+  } else res.textContent = '错误: ' + (d.detail || '保存失败');
+}
+document.getElementById('dir-migrate-btn').addEventListener('click', async () => {
+  if (!previousDir) return;
+  document.getElementById('dir-result').textContent = '迁移中...';
+  const r = await fetch('/api/settings/migrate', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from_dir: previousDir})});
+  const d = await r.json();
+  if (r.ok) {
+    document.getElementById('dir-result').textContent = `迁移完成: ${d.count} 个会议（${d.to_dir}）`;
+    document.getElementById('dir-migrate-btn').classList.add('hidden');
+    loadHistory();
+  } else document.getElementById('dir-result').textContent = '错误: ' + (d.detail || '迁移失败');
+});
+
+// --- LLM config ---
+async function loadLLM() {
+  try {
+    const r = await fetch('/api/settings/llm');
+    const d = await r.json();
+    const modeRadio = document.querySelector(`input[name=llm-mode][value="${d.mode}"]`);
+    if (modeRadio) modeRadio.checked = true;
+    toggleLLMFields();
+    document.getElementById('ollama-url').value = d.ollama.base_url;
+    document.getElementById('ollama-model').innerHTML = `<option>${escapeHtml(d.ollama.model)}</option>`;
+    document.getElementById('api-url').value = d.api.base_url;
+    document.getElementById('api-model').value = d.api.model;
+    document.getElementById('api-key').placeholder = d.api.has_key ? '已设置，留空不改' : '输入 api_key';
+    document.getElementById('api-key').value = '';
+    document.getElementById('llm-result').textContent = '';
+  } catch (e) { document.getElementById('llm-result').textContent = '加载失败: ' + e.message; }
+}
+function toggleLLMFields() {
+  const mode = document.querySelector('input[name=llm-mode]:checked').value;
+  document.getElementById('llm-ollama').classList.toggle('hidden', mode !== 'ollama');
+  document.getElementById('llm-api').classList.toggle('hidden', mode !== 'api');
+}
+document.querySelectorAll('input[name=llm-mode]').forEach(r => r.addEventListener('change', toggleLLMFields));
+document.getElementById('ollama-refresh').addEventListener('click', async () => {
+  const url = document.getElementById('ollama-url').value;
+  document.getElementById('llm-result').textContent = '刷新模型列表...';
+  const r = await fetch('/api/settings/llm/models?base_url=' + encodeURIComponent(url));
+  const d = await r.json();
+  const sel = document.getElementById('ollama-model');
+  const cur = sel.value;
+  sel.innerHTML = (d.models || []).map(m => `<option>${escapeHtml(m)}</option>`).join('');
+  if (d.models && d.models.includes(cur)) sel.value = cur;
+  document.getElementById('llm-result').textContent = d.error ? ('刷新失败: ' + d.error) : (`找到 ${d.models.length} 个模型`);
+});
+document.getElementById('ollama-test').addEventListener('click', () => testLLM('ollama'));
+document.getElementById('api-test').addEventListener('click', () => testLLM('api'));
+async function testLLM(mode) {
+  document.getElementById('llm-result').textContent = '测试中...';
+  try {
+    const r = await fetch('/api/settings/llm/test', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(buildLLMPayload(mode, mode === 'api'))});
+    const d = await r.json();
+    document.getElementById('llm-result').textContent = d.ok ? ('连接正常: ' + (d.reply || '').slice(0, 80)) : ('失败: ' + (d.error || '未知错误'));
+  } catch (e) { document.getElementById('llm-result').textContent = '失败: ' + e.message; }
+}
+function buildLLMPayload(mode, withKey) {
+  const payload = {
+    mode,
+    api: { base_url: document.getElementById('api-url').value.trim(), model: document.getElementById('api-model').value.trim() },
+    ollama: { base_url: document.getElementById('ollama-url').value.trim(), model: document.getElementById('ollama-model').value }
+  };
+  if (withKey) {
+    const k = document.getElementById('api-key').value;
+    if (k) payload.api.api_key = k;
+  }
+  return payload;
+}
+document.getElementById('llm-save-btn').addEventListener('click', async () => {
+  const mode = document.querySelector('input[name=llm-mode]:checked').value;
+  const r = await fetch('/api/settings/llm', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(buildLLMPayload(mode, true))});
+  const d = await r.json();
+  document.getElementById('llm-result').textContent = r.ok ? '已保存' : ('错误: ' + (d.detail || '保存失败'));
+});
+
+// --- hotwords ---
+async function loadHotwords() {
+  try {
+    const d = await fetch('/api/settings/hotwords').then(r => r.json());
+    document.getElementById('hotwords-text').value = (d.hotwords || []).join('\n');
+    document.getElementById('hotwords-result').textContent = '';
+  } catch (e) { document.getElementById('hotwords-result').textContent = '加载失败: ' + e.message; }
+}
+document.getElementById('hotwords-save-btn').addEventListener('click', async () => {
+  const words = document.getElementById('hotwords-text').value.split('\n').map(s => s.trim()).filter(Boolean);
+  try {
+    const r = await fetch('/api/settings/hotwords', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hotwords: words})});
+    const d = await r.json();
+    if (r.ok) {
+      let msg = `已保存 ${d.count} 个热词`;
+      if (d.duplicates) msg += `（自动去重 ${d.duplicates} 个重复）`;
+      document.getElementById('hotwords-result').textContent = msg;
+    } else {
+      document.getElementById('hotwords-result').textContent = '错误: ' + (d.detail || '保存失败');
+    }
+  } catch (e) { document.getElementById('hotwords-result').textContent = '保存失败: ' + e.message; }
+});
+
+// --- onboarding banner ---
+async function loadOnboard() {
+  if (localStorage.getItem('onboarded')) return;
+  try {
+    const r = await fetch('/api/settings');
+    const d = await r.json();
+    const bar = document.getElementById('onboard-bar');
+    bar.innerHTML = `<span>会议数据将存到 <code>${escapeHtml(d.data_dir)}</code>。</span><button id="ob-config" class="mini">更改位置</button><button id="ob-default" class="mini">就用这个</button>`;
+    bar.classList.remove('hidden');
+    document.getElementById('ob-config').addEventListener('click', () => settingsBtn.click());
+    document.getElementById('ob-default').addEventListener('click', () => { localStorage.setItem('onboarded', '1'); bar.classList.add('hidden'); });
+  } catch {}
+}
+
 loadHistory();
 loadAccessInfo();
+loadOnboard();

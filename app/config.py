@@ -48,10 +48,16 @@ class ServerConfig:
 
 
 @dataclass
+class StorageConfig:
+    data_dir: str = "./data"
+
+
+@dataclass
 class Config:
     asr: ASRConfig
     llm: LLMConfig
     server: ServerConfig
+    storage: StorageConfig
 
 
 def _expand_env(value):
@@ -81,4 +87,5 @@ def load_config(path: str) -> Config:
             max_retries=raw["llm"]["max_retries"],
         ),
         server=ServerConfig(**raw["server"]),
+        storage=StorageConfig(**(raw.get("storage") or {})),
     )
