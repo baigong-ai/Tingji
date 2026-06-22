@@ -56,7 +56,7 @@ def create_meeting(title: str, audio_path: str, ext: str) -> str:
     mdir = DATA_DIR / meeting_id
     mdir.mkdir(parents=True, exist_ok=True)
     dst = mdir / f"audio.{ext}"
-    shutil.copy(audio_path, dst)
+    shutil.copyfile(audio_path, dst)
     meta = {
         "id": meeting_id,
         "title": title,

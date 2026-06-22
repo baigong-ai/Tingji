@@ -38,7 +38,7 @@ def get_model(cfg: ASRConfig):
         os.environ["MODELSCOPE_CACHE"] = cfg.cache_dir
         import torch
         if torch.cuda.is_available():
-            device = f"cuda ({torch.cuda.get_device_name(0)})"
+            device = "cuda:0"
         elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
             device = "mps"
         else:
@@ -51,6 +51,7 @@ def get_model(cfg: ASRConfig):
             punc_model=_resolve_model("ct-punc", cfg.cache_dir),
             spk_model=_resolve_model("cam++", cfg.cache_dir),
             disable_update=True,
+            device=device,
         )
         log.info("FunASR models loaded")
     return _model
