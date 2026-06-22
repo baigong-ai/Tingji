@@ -18,6 +18,7 @@
 - Python 3.11（用 uv 管理）
 - [uv](https://github.com/astral-sh/uv)
 - ffmpeg（macOS：`brew install ffmpeg`）
+- Git LFS（macOS：`brew install git-lfs`）—— 用于预下载模型
 - 首次启动会下载约 3-4GB FunASR 模型
 
 ## 快速开始
@@ -27,6 +28,74 @@ git clone <repo> funasr
 cd funasr
 cp config.yaml.example config.yaml
 cp .env.example .env  # 编辑 .env，填入 LLM_API_KEY（api 模式）
+
+bash scripts/download_models.sh   # 预下载模型（推荐，见下文）
+./run.sh
+```
+
+## 预下载模型（推荐）
+
+FunASR 需要 4 个模型（ASR / VAD / 标点 / 说话人），共约 3-4GB。首次运行时
+FunASR SDK 会从 modelscope 自动下载，但 macOS 上 uv 装的 Python 是临时签名，
+偶发会出现网络访问限制。推荐**在启动服务之前**用 `git clone` 预下载——`git`
+是 Apple 签名，走系统网络路径，更稳。
+
+### 方法 A：用脚本自动下载
+
+```bash
+bash scripts/download_models.sh
+```
+
+默认下载到 `./models/`，下载完后 `app/asr.py` 启动时会自动识别本地目录并跳过
+SDK 下载。
+
+也可以指定其他路径：
+
+```bash
+bash scripts/download_models.sh /path/to/models
+# 然后在 config.yaml 改 asr.cache_dir: /path/to/models
+```
+
+### 方法 B：手动 git clone
+
+```bash
+mkdir -p models && cd models
+git lfs install
+
+git clone --depth 1 https://www.modelscope.cn/iic/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch.git paraformer-zh
+git clone --depth 1 https://www.modelscope.cn/iic/speech_fsmn_vad_zh-cn-16k-common-pytorch.git fsmn-vad
+git clone --depth 1 https://www.modelscope.cn/iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch.git ct-punc
+git clone --depth 1 https://www.modelscope.cn/iic/speech_campplus_sv_zh-cn_16k-common.git campp
+```
+
+目录名要严格对应（`paraformer-zh` / `fsmn-vad` / `ct-punc` / `campp`），否则
+`app/asr.py` 无法识别。
+
+### 方法 C：用 modelscope SDK 下载
+
+如果你环境正常，直接启动服务就行：
+
+```bash
+./run.sh
+```
+
+第一次推理时 FunASR 会自己从 modelscope 下载到 `asr.cache_dir`（默认 `./models/`）。
+下载过程没有进度回调，60 分钟音频的首次任务可能卡在 "语音识别" 阶段 10-20 分钟，
+属于正常现象。
+
+### 模型下载失败的网络排查
+
+```bash
+# 1. 测试直连
+curl -sS -o /dev/null -w "%{http_code}\n" https://www.modelscope.cn/
+
+# 2. 如果 curl 通但 Python 不通（macOS mDNSResponder 偶发问题）
+cp dns_hosts.txt.example dns_hosts.txt
+# 编辑 dns_hosts.txt，填入 curl 测试可用的 IP（用 dig / nslookup 查）
+# 启动服务时会自动加载
+
+# 3. 如果用代理
+export HTTPS_PROXY=http://your-proxy:port
 ./run.sh
 ```
 
