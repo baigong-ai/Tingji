@@ -4,18 +4,18 @@
   <meta charset="utf-8">
   <title id="m-page-title">会议 · 听记</title>
   <link rel="stylesheet" href="/static/style.css?v=7">
-  <link rel="stylesheet" href="/static/meeting.css?v=4">
+  <link rel="stylesheet" href="/static/meeting.css?v=5">
 </head>
 <body>
   <header>
-    <h1>
-      <a href="/" class="back-link" title="返回首页" aria-label="返回首页">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <polyline points="15 18 9 12 15 6"/>
-        </svg>
-      </a>
-      <span id="m-title">会议</span>
-    </h1>
+    <a href="/" class="back-link" title="返回首页" aria-label="返回首页">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polyline points="15 18 9 12 15 6"/>
+      </svg>
+    </a>
+    <h1><a href="/" class="brand">听记</a></h1>
+    <span class="header-sep" aria-hidden="true">/</span>
+    <span id="m-title" class="header-doc-title">会议</span>
     <div class="header-right">
       <div id="access-info-slot" class="header-access hidden"></div>
       <button id="settings-btn" class="header-btn">设置</button>
@@ -105,6 +105,6 @@
 
   <script src="/static/access.js?v=1"></script>
   <script src="/static/marked.min.js?v=1"></script>
-  <script src="/static/meeting.js?v=4"></script>
+  <script src="/static/meeting.js?v=5"></script>
 </body>
 </html>

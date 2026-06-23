@@ -80,16 +80,47 @@
   display: inline-flex;
   align-items: center;
   opacity: 0.7;
-  margin-right: 8px;
+  margin-right: 4px;
   padding: 2px;
   transition: opacity var(--tx);
+  flex: none;
 }
 .back-link:hover { opacity: 1; }
 
-header h1 #m-title {
+/* 详情页 header：返回箭头 + 品牌字 + 分隔 + 文档标题 */
+header h1 {
+  margin: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0;
+}
+header h1 .brand {
+  color: var(--paper);
+  text-decoration: none;
+  flex: none;
+}
+header h1 .brand:hover { opacity: 0.85; }
+.header-sep {
+  color: rgba(250, 248, 243, 0.35);
+  margin: 0 12px;
+  font-family: var(--font-mono);
+  font-weight: 300;
+  font-size: 18px;
+  flex: none;
+}
+.header-doc-title {
+  color: var(--paper);
+  opacity: 0.7;
+  font-size: 15px;
   font-family: var(--font-display);
   font-style: italic;
-  font-weight: 500;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
 
 /* --- 说话人 chip --- */
@@ -355,24 +386,25 @@ header h1 #m-title {
   line-height: 1.85;
   border: 1px solid var(--paper-edge);
 }
-/* 对照行对齐：每个 turn 占一对行（左边原句 + 右边整理版） */
-.compare-row {
-  padding: 10px 0;
-  border-bottom: 1px dashed var(--paper-edge);
-  transition: background var(--tx);
-  scroll-margin-top: 80px;
-}
-.compare-row:last-child { border-bottom: none; }
-.compare-row.compare-row-active,
-.compare-row.compare-row-active-play {
-  background: var(--paper-deep);
-  border-radius: var(--r-sm);
+/* 对照视图：左原文逐句、右整理段独立；hover 跨栏高亮 */
+.compare-col {
+  background: var(--paper);
+  padding: 20px 24px;
+  border-radius: var(--r-md);
+  max-height: 72vh;
+  overflow-y: auto;
+  font-size: 14px;
+  line-height: 1.85;
+  border: 1px solid var(--paper-edge);
 }
 .compare-raw-line {
   font-size: 13px;
   line-height: 1.7;
   color: var(--ink-soft);
-  padding: 2px 0;
+  padding: 4px 8px;
+  border-radius: var(--r-sm);
+  cursor: default;
+  transition: background var(--tx), color var(--tx);
 }
 .compare-raw-line .ts {
   font-family: var(--font-mono);
@@ -384,6 +416,25 @@ header h1 #m-title {
   font-weight: 600;
   font-size: 12px;
   margin-right: 6px;
+}
+.compare-proc-block {
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--paper-edge);
+  background: var(--paper);
+  transition: all var(--tx);
+}
+.compare-proc-block:last-child { margin-bottom: 0; }
+/* hover 跨栏高亮 */
+.compare-raw-line.compare-link-active {
+  background: var(--seal-soft);
+  color: var(--seal-deep);
+}
+.compare-proc-block.compare-link-active {
+  background: var(--seal-soft);
+  border-color: var(--seal);
+  box-shadow: 0 0 0 1px var(--seal);
 }
 .compare-empty {
   color: var(--ink-faint);

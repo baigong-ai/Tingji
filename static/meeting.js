@@ -231,62 +231,128 @@ function renderProcessedSegments(md, sentences) {
   return html;
 }
 
-// 对照视图：按"说话人轮次"做行对齐的双栏，hover 一边高亮两边
+// 对照视图：左原文逐句，右整理段独立两栏；hover 通过关键词相似度跨栏定位
 function renderCompare(md, sentences) {
   if (!sentences || !sentences.length) {
-    return '<p class="empty-state">（暂无原句）</p>';
+    return { rawHtml: '<p class="empty-state">（暂无原句）</p>', procHtml: '' };
   }
-  // 1. 按说话人切原句：每个 turn 是连续的同 spk 段落
-  const turns = [];
-  let cur = null;
-  for (const s of sentences) {
-    if (!cur || String(cur.spk) !== String(s.spk)) {
-      cur = { spk: String(s.spk), sentences: [] };
-      turns.push(cur);
-    }
-    cur.sentences.push(s);
-  }
+  // 左：原文逐句（按时间）
+  const rawHtml = sentences.map((s, i) =>
+    `<div class="compare-raw-line" data-idx="${i}" data-start="${s.start}">` +
+    `<span class="ts">[${fmtTs(s.start)}]</span>` +
+    `<span class="spk ${spkClass(s.spk)}">${escapeHtml(spkLabel(s.spk))}</span>` +
+    `<span>${escapeHtml(s.text)}</span></div>`
+  ).join('');
 
-  // 2. 解析整理版的 ## 段落，按顺序
-  let procBlocks = [];
+  // 右：整理版按 ## 段落
+  let procHtml = '';
+  const procTokens = [];  // 每段对应的关键词集合
   if (md) {
     const parts = md.split(/^## /m);
-    for (let i = 0; i < parts.length; i++) {
-      let block = parts[i];
-      if (!block.trim()) continue;
-      const m = block.match(/^说话人\s*(\d+)/);
-      if (m) {
-        block = '## ' + block;
-        procBlocks.push({ spk: m[1], html: marked.parse(applySpeakerNamesToMd(block)) });
-      }
+    for (const part of parts) {
+      if (!part.trim()) continue;
+      const m = part.match(/^说话人\s*(\d+)/);
+      if (!m) continue;
+      const block = '## ' + part;
+      const html = marked.parse(applySpeakerNamesToMd(block));
+      procHtml += `<div class="compare-proc-block">${html}</div>`;
+      procTokens.push(tokenize(extractText(block)));
     }
+  } else {
+    procHtml = '<p class="empty-state">（暂无整理版）</p>';
   }
 
-  // 3. 按 turn 数对齐双栏
-  const n = Math.max(turns.length, procBlocks.length);
-  let rawHtml = '', procHtml = '';
-  for (let i = 0; i < n; i++) {
-    const t = turns[i];
-    const p = procBlocks[i];
-    const pairKey = `row-${i}`;
-    if (t) {
-      const rawLines = t.sentences.map(s =>
-        `<div class="compare-raw-line" data-start="${s.start}" data-end="${s.end}">` +
-        `<span class="ts">[${fmtTs(s.start)}]</span>` +
-        `<span class="spk ${spkClass(t.spk)}">${escapeHtml(spkLabel(t.spk))}</span>` +
-        `<span>${escapeHtml(s.text)}</span></div>`
-      ).join('');
-      rawHtml += `<div class="compare-row" data-pair="${pairKey}">${rawLines}</div>`;
-    } else {
-      rawHtml += `<div class="compare-row compare-empty" data-pair="${pairKey}"><span class="hint">（无对应原句）</span></div>`;
-    }
-    if (p) {
-      procHtml += `<div class="compare-row compare-proc" data-pair="${pairKey}">${p.html}</div>`;
-    } else {
-      procHtml += `<div class="compare-row compare-empty" data-pair="${pairKey}"><span class="hint">（等待整理）</span></div>`;
+  return { rawHtml, procHtml, procTokens };
+}
+
+// 简单中文分词：把文本拆成 1-2 字短串的集合，用于相似度匹配
+function tokenize(text) {
+  if (!text) return new Set();
+  const t = text.replace(/[，。！？、；：""''《》（）()\s,.!?;:"'()]/g, ' ').trim();
+  const set = new Set();
+  // 单字
+  for (const c of t) {
+    if (/[一-鿿]/.test(c) || /[a-zA-Z0-9]/.test(c)) set.add(c);
+  }
+  // 2-gram
+  for (let i = 0; i < t.length - 1; i++) {
+    const c = t[i], n = t[i + 1];
+    if ((/[一-鿿]/.test(c) && /[一-鿿]/.test(n)) ||
+        (/[a-zA-Z0-9]/.test(c) && /[a-zA-Z0-9]/.test(n))) {
+      set.add(c + n);
     }
   }
-  return { rawHtml, procHtml };
+  return set;
+}
+
+// 从 markdown 块提取纯文本（去 ## 标题和 markdown 标记）
+function extractText(block) {
+  return block
+    .replace(/^#+\s*/gm, '')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/[，。！？、；：""''《》（）()\s,.!?;:"'()]/g, ' ');
+}
+
+// hover 跨栏定位：原句 → 最匹配的整理段
+function setupCompareHover(sentences, procTokens) {
+  const rawLines = document.querySelectorAll('#compare-raw-body .compare-raw-line');
+  const procBlocks = document.querySelectorAll('#compare-processed-body .compare-proc-block');
+  if (!procTokens || !procTokens.length) return;
+
+  rawLines.forEach((line, idx) => {
+    const sent = sentences[idx];
+    if (!sent) return;
+    const sentTokens = tokenize(sent.text);
+
+    line.addEventListener('mouseenter', () => {
+      // 计算每个整理段的命中分
+      const scores = procTokens.map(t => jaccard(sentTokens, t));
+      const bestIdx = scores.indexOf(Math.max(...scores));
+      rawLines.forEach(l => l.classList.remove('compare-link-active'));
+      procBlocks.forEach((b, i) => b.classList.toggle('compare-link-active', i === bestIdx && scores[bestIdx] > 0));
+      line.classList.add('compare-link-active');
+      // 滚到对应段
+      if (scores[bestIdx] > 0 && procBlocks[bestIdx]) {
+        procBlocks[bestIdx].scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    });
+    line.addEventListener('mouseleave', () => {
+      rawLines.forEach(l => l.classList.remove('compare-link-active'));
+      procBlocks.forEach(b => b.classList.remove('compare-link-active'));
+    });
+  });
+
+  // 反向：hover 整理段 → 高亮包含最多关键词的所有原句
+  procBlocks.forEach((block, i) => {
+    const blockTokens = procTokens[i];
+    block.addEventListener('mouseenter', () => {
+      const hits = sentences.map((s, idx) => ({ idx, score: jaccard(blockTokens, tokenize(s.text)) }));
+      const maxScore = Math.max(...hits.map(h => h.score));
+      rawLines.forEach((l, idx) => {
+        const hit = hits[idx];
+        l.classList.toggle('compare-link-active', hit.score > 0 && hit.score >= maxScore * 0.6);
+      });
+      procBlocks.forEach(b => b.classList.toggle('compare-link-active', b === block));
+      if (rawLines[hits.reduce((a, b) => b.score > a.score ? b : a, hits[0]).idx]) {
+        rawLines[hits.reduce((a, b) => b.score > a.score ? b : a, hits[0]).idx]
+          .scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    });
+    block.addEventListener('mouseleave', () => {
+      rawLines.forEach(l => l.classList.remove('compare-link-active'));
+      procBlocks.forEach(b => b.classList.remove('compare-link-active'));
+    });
+  });
+}
+
+function jaccard(a, b) {
+  if (!a.size || !b.size) return 0;
+  let inter = 0;
+  for (const x of a) if (b.has(x)) inter++;
+  return inter / (a.size + b.size - inter);
 }
 
 function renderAll() {
@@ -294,29 +360,13 @@ function renderAll() {
   renderRaw(document.getElementById('transcript'), allSentences, true);
   document.getElementById('processed-md').innerHTML = renderProcessedSegments(currentProcessed, allSentences);
   document.getElementById('summary-md').innerHTML = renderMd(currentSummary);
-  // 对照视图：按说话人轮次行对齐
+  // 对照视图：左原文逐句，右整理段独立；hover 跨栏关键词定位
   const cmp = renderCompare(currentProcessed, allSentences);
   document.getElementById('compare-raw-body').innerHTML = cmp.rawHtml;
   document.getElementById('compare-processed-body').innerHTML = cmp.procHtml;
-  bindCompareHover();
+  setupCompareHover(allSentences, cmp.procTokens);
   activeLine = null;
   lastIdx = -1;
-}
-
-// 对照双栏 hover 联动：hover 一边高亮两边对应行
-function bindCompareHover() {
-  const rows = document.querySelectorAll('.compare-row[data-pair]');
-  rows.forEach(row => {
-    row.addEventListener('mouseenter', () => {
-      const key = row.dataset.pair;
-      rows.forEach(r => {
-        if (r.dataset.pair === key) r.classList.add('compare-row-active');
-      });
-    });
-    row.addEventListener('mouseleave', () => {
-      rows.forEach(r => r.classList.remove('compare-row-active'));
-    });
-  });
 }
 
 function renderSpeakersBar(count) {

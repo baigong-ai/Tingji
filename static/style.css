@@ -151,7 +151,11 @@ header h1 .brand {
   /* 标题"听记"两字加点 scale 让它有徽章感 */
   font-size: 26px;
   line-height: 1;
+  color: var(--paper);
+  text-decoration: none;
+  display: inline-block;
 }
+header h1 .brand:hover { opacity: 0.85; }
 header h1 .brand-sub {
   font-family: var(--font-body);
   font-size: 12px;
