@@ -64,137 +64,17 @@
   /* 主题专属：纸张底纹与笔触 */
   --paper-noise: radial-gradient(circle at 20% 30%, rgba(122, 111, 95, 0.025) 0, transparent 50%),
                  radial-gradient(circle at 80% 70%, rgba(122, 111, 95, 0.02) 0, transparent 50%);
-  --paper-rule: none;                /* 稿纸格横线（仅 C 主题用） */
+  --paper-rule: none;
   --body-letter-spacing: 0;
   --heading-tracking: 0.02em;
+  --header-height: 56px;
 }
 
 /* =================================================================
-   主题 B：录音棚冷蓝 Studio Tape Deck
-   VARIANCE 6 · MOTION 5 · DENSITY 5
-   Design Read: 听记是音频产物，致敬录音棚硬件——
-   哑光深灰机箱、蓝色 LED 指示灯、数字荧光绿、等宽字体。
+   视觉风格定稿：A 学者札记
+   Design Read: 个人会议转写工具，非技术用户，单次 30+ 分钟校对。
+   长时间停留不刺眼比视觉冲击更重要。
    ================================================================= */
-[data-theme="studio"] {
-  --paper: #1a1d21;          /* 哑光深灰机箱 */
-  --paper-deep: #14171a;     /* 更深的沟槽 */
-  --paper-edge: #2a2e34;     /* 机箱接缝 */
-  --ink: #e4e7eb;            /* LCD 屏白 */
-  --ink-soft: #a8b0ba;
-  --ink-faint: #6b7480;
-  --ink-ghost: #4a525c;
-
-  --seal: #4ec9e0;           /* 蓝色 LED 指示灯 */
-  --seal-deep: #2ba8c4;
-  --seal-soft: #1e3138;
-  --indigo: #7ee787;         /* 数字荧光绿 - "在录音"指示 */
-  --indigo-soft: #1c2e22;
-  --moss: #7ee787;           /* 完成 = 荧光绿 */
-  --moss-soft: #1c2e22;
-  --ochre: #ffb454;          /* 琥珀色 = 处理中 */
-  --ochre-soft: #3a2a17;
-
-  --seal-glow: rgba(78, 201, 224, 0.6);
-  --ink-shadow-soft: rgba(0, 0, 0, 0.3);
-  --ink-shadow-mid: rgba(0, 0, 0, 0.5);
-  --ink-shadow-deep: rgba(0, 0, 0, 0.7);
-  --paper-overlay: rgba(0, 0, 0, 0.7);
-  --header-btn-border: rgba(228, 231, 235, 0.25);
-  --header-btn-border-hover: rgba(228, 231, 235, 0.9);
-
-  --spk-0: #4ec9e0;
-  --spk-1: #7ee787;
-  --spk-2: #ffb454;
-  --spk-3: #ff6b6b;
-  --spk-4: #c792ea;
-  --spk-5: #82aaff;
-  --spk-6: #f78c6c;
-
-  /* 录音棚字体：等宽 + LCD 数字感 */
-  --font-serif: "SF Mono", Menlo, Consolas, "JetBrains Mono", "Courier New", monospace;
-  --font-display: "SF Mono", Menlo, Consolas, "JetBrains Mono", "Courier New", monospace;
-  --font-body: "SF Mono", Menlo, Consolas, "JetBrains Mono", "Courier New", monospace;
-
-  --shadow-flat: 0 1px 0 rgba(0, 0, 0, 0.4);
-  --shadow-raised: 0 1px 0 rgba(78, 201, 224, 0.1), 0 4px 12px rgba(0, 0, 0, 0.5);
-  --shadow-deep: 0 4px 24px rgba(0, 0, 0, 0.6), 0 0 1px rgba(78, 201, 224, 0.4);
-
-  --paper-noise: linear-gradient(180deg, rgba(78, 201, 224, 0.02) 0, transparent 50%);
-  --paper-rule: none;
-  --body-letter-spacing: 0.02em;
-  --heading-tracking: 0.04em;
-}
-
-/* =================================================================
-   主题 C：中文打字机 Chinese Typewriter
-   VARIANCE 5 · MOTION 4 · DENSITY 4
-   Design Read: 致敬 1960s 中文打字机——
-   纸黄底 + 朱红印章 + 黑色铅字感（无衬线粗体）+ 稿纸格横线。
-   重在"打字"动作感，而非"印刷"成品感。
-   ================================================================= */
-[data-theme="typewriter"] {
-  --paper: #f5e8c8;          /* 纸黄打字稿纸 */
-  --paper-deep: #e8d6a8;
-  --paper-edge: #c4a96d;     /* 红线主色 */
-  --ink: #1a0f08;            /* 黑色铅字 */
-  --ink-soft: #2d1d12;
-  --ink-faint: #7a5d3a;
-  --ink-ghost: #a78c66;
-
-  --seal: #c8161d;           /* 朱红印章（比 A 更亮、更红） */
-  --seal-deep: #9c0f15;
-  --seal-soft: #f5d3cf;
-  --indigo: #1f3a5f;
-  --indigo-soft: #d6dde6;
-  --moss: #2f5d2c;
-  --moss-soft: #d2e1cf;
-  --ochre: #b78038;
-  --ochre-soft: #e8d4a8;
-
-  --seal-glow: rgba(200, 22, 29, 0.45);
-  --ink-shadow-soft: rgba(26, 15, 8, 0.08);
-  --ink-shadow-mid: rgba(26, 15, 8, 0.15);
-  --ink-shadow-deep: rgba(26, 15, 8, 0.25);
-  --paper-overlay: rgba(26, 15, 8, 0.6);
-  --header-btn-border: rgba(245, 232, 200, 0.3);
-  --header-btn-border-hover: rgba(245, 232, 200, 1);
-
-  --spk-0: #1f3a5f;
-  --spk-1: #2f5d2c;
-  --spk-2: #b78038;
-  --spk-3: #c8161d;
-  --spk-4: #6e3a8e;
-  --spk-5: #2c7a7b;
-  --spk-6: #a04900;
-
-  /* 中文打字机字体：黑体（无衬线粗体）当主文，模拟铅字击打感 */
-  --font-serif: "Heiti SC", "STHeiti", "SimHei", "Microsoft YaHei", "PingFang SC", sans-serif;
-  --font-display: "Heiti SC", "STHeiti", "SimHei", "Microsoft YaHei", "PingFang SC", sans-serif;
-  --font-mono: "SF Mono", Menlo, Consolas, monospace;
-  --font-body: var(--font-serif);
-
-  --shadow-flat: 0 1px 0 var(--ink-shadow-soft);
-  --shadow-raised: 0 2px 0 var(--ink-shadow-mid);
-  --shadow-deep: 0 4px 0 var(--ink-shadow-deep);
-
-  /* 稿纸横线背景：每隔 28px 一条红细线 */
-  --paper-noise: repeating-linear-gradient(
-    180deg,
-    transparent 0,
-    transparent 27px,
-    rgba(200, 22, 29, 0.18) 27px,
-    rgba(200, 22, 29, 0.18) 28px
-  );
-  --paper-rule: repeating-linear-gradient(
-    180deg,
-    transparent 0,
-    transparent 27px,
-    rgba(200, 22, 29, 0.22) 27px,
-    rgba(200, 22, 29, 0.22) 28px
-  );
-  --body-letter-spacing: 0.04em;
-  --heading-tracking: 0.08em;
-}
 
 * { box-sizing: border-box; }
 
@@ -213,15 +93,18 @@ body {
   min-height: 100vh;
 }
 
-/* === 顶部条 === */
+/* === 顶部条：sticky 固定 === */
 header {
   background: var(--ink);
   color: var(--paper);
-  padding: 18px 36px;
+  padding: 0 36px;
+  height: var(--header-height);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  position: relative;
+  position: sticky;
+  top: 0;
+  z-index: 100;
   border-bottom: 2px solid var(--seal);
   box-shadow: 0 1px 0 var(--ink-shadow-mid);
 }
@@ -271,32 +154,63 @@ header h1 .brand-sub::before { content: "·  "; opacity: 0.5; }
   border-color: var(--header-btn-border-hover);
 }
 
-/* 主题切换按钮：展示当前主题缩写 */
-.theme-btn {
+/* header 右侧容器（access-info + 设置按钮） */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* header 内的访问地址槽 */
+.header-access {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
   font-family: var(--font-mono);
+}
+.header-access .url-chip,
+.header-access .url-select {
+  background: rgba(250, 248, 243, 0.08);
+  color: var(--paper);
+  border: 1px solid var(--header-btn-border);
+  padding: 4px 10px;
+  border-radius: var(--r-sm);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  user-select: all;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.header-access .url-select {
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--paper) 50%),
+                    linear-gradient(135deg, var(--paper) 50%, transparent 50%);
+  background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 28px;
+  cursor: pointer;
+}
+.header-access .copy {
   background: transparent;
   color: var(--paper);
   border: 1px solid var(--header-btn-border);
-  padding: 7px 14px;
+  font-family: var(--font-serif);
+  font-size: 11px;
+  padding: 4px 10px;
   border-radius: var(--r-sm);
   cursor: pointer;
-  font-size: 11px;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-  font-weight: 500;
+  letter-spacing: 0.06em;
   transition: all var(--tx);
-  margin-right: 12px;
 }
-.theme-btn:hover {
+.header-access .copy:hover {
   background: var(--seal);
   color: var(--paper);
   border-color: var(--seal);
-}
-.theme-btn .theme-label {
-  opacity: 0.55;
-  font-size: 9px;
-  margin-right: 6px;
-  letter-spacing: 0.2em;
 }
 
 /* === 容器 === */
@@ -304,15 +218,6 @@ header h1 .brand-sub::before { content: "·  "; opacity: 0.5; }
   max-width: 940px;
   margin: 40px auto 80px;
   padding: 0 28px;
-}
-
-/* 主题 C（中文打字机）：在容器层叠稿纸横线 */
-[data-theme="typewriter"] .container {
-  background-image: var(--paper-rule);
-  background-attachment: local;
-  padding-top: 28px;
-  padding-bottom: 28px;
-  border-radius: var(--r-md);
 }
 
 /* === 步骤卡 === */
@@ -359,67 +264,6 @@ header h1 .brand-sub::before { content: "·  "; opacity: 0.5; }
   font-size: 13px;
   color: var(--ink-faint);
   line-height: 1.55;
-}
-
-/* === 访问信息卡（首次访问地址） === */
-.access-info {
-  background: var(--indigo-soft);
-  border-left: 3px solid var(--indigo);
-  padding: 12px 18px;
-  margin-bottom: 24px;
-  font-size: 13px;
-  color: var(--ink-soft);
-  font-family: var(--font-serif);
-}
-.access-info .title {
-  font-weight: 600;
-  margin-bottom: 8px;
-  color: var(--indigo);
-  letter-spacing: 0.03em;
-  font-size: 13px;
-}
-.access-info ul { margin: 0; padding: 0; list-style: none; }
-.access-info li {
-  padding: 4px 0;
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-.access-info code {
-  background: var(--paper);
-  padding: 3px 8px;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--paper-edge);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--ink);
-  user-select: all;
-}
-.access-info .tag {
-  display: inline-block;
-  min-width: 50px;
-  font-size: 11px;
-  color: var(--indigo);
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-.access-info .copy {
-  margin-left: auto;
-  background: transparent;
-  color: var(--indigo);
-  border: 1px solid var(--indigo);
-  font-size: 11px;
-  padding: 2px 10px;
-  border-radius: var(--r-sm);
-  cursor: pointer;
-  font-family: var(--font-serif);
-  letter-spacing: 0.06em;
-  transition: all var(--tx);
-}
-.access-info .copy:hover {
-  background: var(--indigo);
-  color: var(--paper);
 }
 
 /* === 上传卡 === */

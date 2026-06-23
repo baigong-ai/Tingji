@@ -135,28 +135,39 @@ function escapeHtml(s) {
 }
 
 async function loadAccessInfo() {
-  const box = document.getElementById('access-info');
+  const slot = document.getElementById('access-info-slot');
+  if (!slot) return;
   try {
     const r = await fetch('/api/info');
     const info = await r.json();
-    const plat = info.platform_label ? ` · ${escapeHtml(info.platform_label)}` : '';
-    const items = (info.urls || []).map(u => {
-      const tag = u.includes('127.0.0.1') ? '本机' : '局域网';
-      return `<li><span class="tag">${tag}</span><code>${u}</code><button class="copy" data-url="${u}">复制</button></li>`;
-    }).join('');
-    box.innerHTML = `<div class="title">访问地址 · ${escapeHtml(info.hostname || '')}${plat}</div><ul>${items}</ul>`;
-    box.classList.remove('hidden');
-    box.querySelectorAll('.copy').forEach(b => {
-      b.addEventListener('click', async () => {
-        try {
-          await navigator.clipboard.writeText(b.dataset.url);
-          b.textContent = '已复制';
-          setTimeout(() => b.textContent = '复制', 1500);
-        } catch { b.textContent = '复制失败'; }
-      });
+    // 只展示局域网 URL（过滤掉 127.0.0.1 / localhost）
+    const lanUrls = (info.urls || []).filter(u =>
+      !u.includes('127.0.0.1') && !u.includes('localhost'));
+    if (!lanUrls.length) { slot.classList.add('hidden'); return; }
+    // 多于 1 个时显示下拉；1 个时直接平铺
+    if (lanUrls.length === 1) {
+      slot.innerHTML = `<code class="url-chip">${escapeHtml(lanUrls[0])}</code><button class="copy" data-url="${escapeHtml(lanUrls[0])}">复制</button>`;
+    } else {
+      slot.innerHTML = `
+        <select class="url-select" aria-label="局域网访问地址">
+          ${lanUrls.map(u => `<option value="${escapeHtml(u)}">${escapeHtml(u)}</option>`).join('')}
+        </select>
+        <button class="copy" data-url="${escapeHtml(lanUrls[0])}">复制</button>`;
+    }
+    slot.classList.remove('hidden');
+    const btn = slot.querySelector('.copy');
+    const sel = slot.querySelector('.url-select');
+    btn.addEventListener('click', async () => {
+      const url = sel ? sel.value : btn.dataset.url;
+      try {
+        await navigator.clipboard.writeText(url);
+        btn.textContent = '已复制';
+        setTimeout(() => btn.textContent = '复制', 1500);
+      } catch { btn.textContent = '复制失败'; }
     });
+    if (sel) sel.addEventListener('change', () => { btn.dataset.url = sel.value; });
   } catch {
-    box.classList.add('hidden');
+    slot.classList.add('hidden');
   }
 }
 

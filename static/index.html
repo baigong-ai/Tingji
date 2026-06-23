@@ -9,16 +9,13 @@
 <body>
   <header>
     <h1>听记<span class="brand-sub">让录音变成可读的笔记</span></h1>
-    <div style="display:flex;align-items:center;">
-      <button id="theme-btn" class="theme-btn" type="button" title="切换视觉风格">
-        <span class="theme-label">主题</span><span id="theme-name">A</span>
-      </button>
+    <div class="header-right">
+      <div id="access-info-slot" class="header-access hidden"></div>
       <button id="settings-btn" class="header-btn">设置</button>
     </div>
   </header>
   <main class="container">
     <div id="onboard-bar" class="onboard-bar hidden"></div>
-    <div id="access-info" class="access-info hidden"></div>
 
     <div class="steps">
       <div class="step">
@@ -136,7 +133,6 @@
     </div>
   </div>
 
-  <script src="/static/theme.js?v=1"></script>
   <script src="/static/app.js?v=6"></script>
 </body>
 </html>
