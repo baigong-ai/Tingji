@@ -55,14 +55,12 @@
   --shadow-deep: 0 2px 8px var(--ink-shadow-mid), 0 16px 40px var(--ink-shadow-deep);
   --tx: 220ms cubic-bezier(0.2, 0.7, 0.2, 1);
 
-  /* 字（默认 = 衬线：学者札记） */
-  --font-serif: "Songti SC", "STSong", "SimSun", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, "Times New Roman", serif;
-  --font-display: Georgia, "Songti SC", "STSong", "SimSun", "Noto Serif CJK SC", "Times New Roman", serif;
+  /* 字（默认 = 无衬线：PingFang 系，长时间阅读更舒服） */
+  --font-serif: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Heiti SC", "Noto Sans CJK SC", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Heiti SC", "Helvetica Neue", Helvetica, Arial, sans-serif;
   --font-mono: "SF Mono", Menlo, Consolas, "JetBrains Mono", "Courier New", monospace;
-  --font-body: var(--font-serif);
-  /* 衬线主题：加重时（标题 h1/h2 600、按钮 500）浏览器会合成伪粗体，看起来糊。
-     这里用 CSS 强行覆盖：粗体位用无衬线替代，模拟"墨粗"对比 */
-  --font-bold: var(--font-serif);
+  --font-body: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Heiti SC", "Noto Sans CJK SC", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-bold: var(--font-display);
 
   /* 主题专属：纸张底纹与笔触 */
   --paper-noise: radial-gradient(circle at 20% 30%, rgba(122, 111, 95, 0.025) 0, transparent 50%),
@@ -74,17 +72,16 @@
 }
 
 /* =================================================================
-   字体 E：现代无衬线（PingFang SC 系）
-   Design Read: Mac/Win/Linux 都自带中英文无衬线，字重梯度完整，
-   heading 600 不会有伪粗体变形。长时间校对更不易读累。
+   字体（可选）：衬线（Songti SC / Georgia 系）
+   Design Read: 书卷气，默认关闭。PingFang 无衬线作主选。
    ================================================================= */
-[data-font="sans"] {
-  --font-serif: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Heiti SC", "Noto Sans CJK SC", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  --font-display: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Heiti SC", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  --font-body: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Heiti SC", "Noto Sans CJK SC", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  --font-bold: var(--font-display);
+[data-font="serif"] {
+  --font-serif: "Songti SC", "STSong", "SimSun", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, "Times New Roman", serif;
+  --font-display: Georgia, "Songti SC", "STSong", "SimSun", "Noto Serif CJK SC", "Times New Roman", serif;
+  --font-body: "Songti SC", "STSong", "SimSun", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, "Times New Roman", serif;
+  --font-bold: var(--font-serif);
   --body-letter-spacing: 0;
-  --heading-tracking: 0.01em;
+  --heading-tracking: 0.02em;
 }
 
 /* =================================================================
@@ -105,14 +102,12 @@ body {
   line-height: 1.65;
   font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
   letter-spacing: var(--body-letter-spacing);
-  /* 衬线主题下关闭字重合成（避免 Songti SC 的伪粗体变形） */
-  font-synthesis-weight: none;
   background-image: var(--paper-noise);
   background-attachment: fixed;
   min-height: 100vh;
 }
-/* 无衬线主题恢复字重合成（PingFang SC 自带完整字重） */
-[data-font="sans"] body { font-synthesis-weight: style; }
+/* 衬线主题下关闭字重合成（Songti SC 仅 Regular，避免伪粗体变形） */
+[data-font="serif"] body { font-synthesis-weight: none; }
 
 /* === 顶部条：sticky 固定 === */
 header {
@@ -261,17 +256,20 @@ header h1 .brand-sub::before { content: "·  "; opacity: 0.5; }
   padding: 0 28px;
 }
 
-/* === 步骤卡 === */
+/* === 步骤（单行横排，紧凑） === */
 .steps {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 0;
-  margin-bottom: 36px;
+  margin-bottom: 28px;
   border-top: 1px solid var(--paper-edge);
   border-bottom: 1px solid var(--paper-edge);
-  padding: 22px 0;
+  padding: 14px 0;
 }
 .step {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
   padding: 0 24px;
   position: relative;
   text-align: left;
@@ -279,32 +277,38 @@ header h1 .brand-sub::before { content: "·  "; opacity: 0.5; }
 .step:not(:last-child)::after {
   content: "";
   position: absolute;
-  right: 0; top: 8px; bottom: 8px;
+  right: 0; top: 4px; bottom: 4px;
   width: 1px;
   background: var(--paper-edge);
 }
 .step .num {
-  display: inline-block;
+  flex: none;
   font-family: var(--font-display);
   font-style: italic;
-  font-size: 32px;
+  font-size: 20px;
   font-weight: 500;
   color: var(--seal);
   line-height: 1;
-  margin-bottom: 10px;
   font-feature-settings: "lnum" 1;
 }
 .step .step-title {
-  font-size: 15px;
+  flex: none;
+  font-size: 14px;
   font-weight: 600;
   color: var(--ink);
-  margin-bottom: 4px;
   letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 .step .step-desc {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--ink-faint);
-  line-height: 1.55;
+  line-height: 1.5;
+  min-width: 0;
+}
+.step .step-title + .step-desc::before {
+  content: "·";
+  margin: 0 6px;
+  color: var(--paper-edge);
 }
 
 /* === 上传卡 === */

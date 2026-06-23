@@ -19,10 +19,16 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
   font-size: 13px;
   color: var(--ink-faint);
   font-family: var(--font-mono);
   letter-spacing: 0.04em;
+}
+.meta-row #m-meta {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 .meta-row #m-meta::before {
   content: "「 ";
@@ -37,6 +43,9 @@
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+  white-space: nowrap;
 }
 .export-row select {
   padding: 6px 10px;
@@ -374,6 +383,8 @@ mark.search-hit.current {
   background: var(--seal) !important;
   color: var(--paper) !important;
   padding: 9px 18px !important;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .retry-btn:hover:not(:disabled) {
   background: var(--seal-deep) !important;

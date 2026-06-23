@@ -1,8 +1,8 @@
-// 听记 · 字体切换（衬线 ⇄ 无衬线）
+// 听记 · 字体切换（无衬线 ⇄ 衬线）
 
 const FONTS = [
-  { id: '',     short: '衬', name: '衬线（学者札记）' },
-  { id: 'sans', short: '无', name: '无衬线（PingFang 系）' },
+  { id: '',      short: '无', name: '无衬线（PingFang 系）' },
+  { id: 'serif', short: '衬', name: '衬线（宋体系）' },
 ];
 
 function applyFont(id) {
@@ -27,7 +27,8 @@ function cycleFont() {
 (function init() {
   let saved = '';
   try { saved = localStorage.getItem('tingji-font') || ''; } catch {}
-  if (FONTS.some(f => f.id === saved)) applyFont(saved);
+  // 默认无衬线；localStorage 存过 serif 才切回衬线
+  if (saved === 'serif') applyFont('serif');
   else applyFont('');
   document.addEventListener('DOMContentLoaded', () => {
     const btn = document.getElementById('font-btn');
