@@ -91,7 +91,7 @@ async function loadHistory() {
   const items = await r.json();
   historyList.innerHTML = '';
   if (!items.length) {
-    historyList.innerHTML = '<li class="meta">暂无</li>';
+    historyList.innerHTML = '<li class="meta" style="justify-content:center;color:#9ca3af;">暂无会议，上传第一段录音开始吧</li>';
     return;
   }
   for (const m of items) {
@@ -99,12 +99,20 @@ async function loadHistory() {
     li.innerHTML = `
       <div>
         <a href="/m/${m.id}">${escapeHtml(m.title)}</a>
-        <div class="meta">${m.created_at} · ${fmtDuration(m.duration_ms)} · ${m.spk_count} 人</div>
+        <div class="meta">${fmtDate(m.created_at)}<span class="sep">·</span>${fmtDuration(m.duration_ms)}<span class="sep">·</span>${m.spk_count} 人</div>
       </div>
-      <div class="status-${m.status}">${statusLabel(m.status)}</div>
+      <span class="status-badge status-${m.status}">${statusLabel(m.status)}</span>
     `;
     historyList.appendChild(li);
   }
+}
+
+function fmtDate(iso) {
+  if (!iso) return '--';
+  const d = new Date(iso);
+  if (isNaN(d)) return iso;
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function fmtDuration(ms) {

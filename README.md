@@ -1,240 +1,166 @@
-# FunASR 本地会议转录系统
+[English](README.en.md) | 中文
 
-基于 [FunASR](https://github.com/modelscope/FunASR) 的多人会议录音转文字系统。
+# 听记
+
+> 本地会议录音转写与纪要——把录音丢进去，自动得到原文、整理稿和会议纪要。数据全程留在你自己的电脑上。
+
+<!-- ![首页](docs/screenshot-home.png) -->
+
+基于 [FunASR](https://github.com/modelscope/FunASR)（语音识别 + 说话人分离 + 标点恢复）与大语言模型整理。适合**会议、访谈、讲座**等长音频；跨平台（macOS / Windows WSL2 + GPU），识别无需联网。
 
 ## 特性
 
-- 说话人自动区分（基于 CAM++）
-- 逐句时间戳
-- LLM 整理口语化文字 + 生成会议纪要
-- 支持 GLM / DeepSeek / 通义 / Kimi / OpenAI 等 OpenAI 兼容 API，也支持本地 Ollama
-- Web 界面拖拽上传、历史回看
-- 支持 wav / mp3 / m4a / aac / flac / ogg / opus
-- 支持长音频（60-90 分钟）
+- **说话人自动区分**：基于 CAM++ 音色聚类，自动分清"谁在说话"
+- **逐句时间戳**：点任意句跳转音频，播放时当前句自动高亮 + 滚动
+- **手动校对 + 热词**：双击句子纠正识别错误，可一键加入热词，提升后续准确率
+- **一键整理**：把口语化的原文整理成通顺文字，再生成会议纪要（核心议题 / 决议 / 待办）
+- **LLM 自由选**：本地 Ollama，或任何 OpenAI 兼容 API（GLM / DeepSeek / 通义 / Kimi / OpenAI …）
+- **全 Web 配置**：数据目录、LLM、热词都在网页里配，不用改文件
+- **导出** `.md` / `.txt` / `.srt`
+- **本地运行**：录音与结果都存在你自己的机器，不上传任何服务器
+
+<!-- ![详情页](docs/screenshot-detail.png) -->
 
 ## 环境要求
 
 - macOS / Linux / Windows（WSL2）
-- Python 3.11（用 uv 管理）
-- [uv](https://github.com/astral-sh/uv)
+- Python 3.11，用 [uv](https://github.com/astral-sh/uv) 管理
 - ffmpeg（macOS：`brew install ffmpeg`；Linux：`sudo apt install ffmpeg`）
-- Git LFS（macOS：`brew install git-lfs`；Linux：`sudo apt install git-lfs`）—— 用于预下载模型
-- 首次启动会下载约 3-4GB FunASR 模型
+- Git LFS（用于预下载模型）
+- 首次启动会下载约 3–4 GB FunASR 模型
 - Windows 用户请看 [WSL2 + GPU 部署指南](docs/wsl-deploy.md)
 
 ## 快速开始
 
 ```bash
-git clone <repo> funasr
-cd funasr
+git clone https://github.com/baigong-ai/tingji.git
+cd tingji
 cp config.yaml.example config.yaml
-cp .env.example .env  # 编辑 .env，填入 LLM_API_KEY（api 模式）
+cp .env.example .env          # api 模式时填入 LLM_API_KEY
 
-bash scripts/download_models.sh   # 预下载模型（推荐，见下文）
+bash scripts/download_models.sh   # 预下载模型（推荐）
 ./run.sh
 ```
 
+浏览器打开 `http://127.0.0.1:8000`。
+
+> 启动后会显示局域网地址，同一网络下的其他设备（手机/平板）也能打开使用。
+
+## 使用流程
+
+1. **上传录音**：拖入或选择音频文件，填写标题，点「开始转录」
+2. **等待识别**：自动完成音频转换 + 语音识别，状态停在「待整理」
+3. **校对原文**：在「原文」Tab 双击任意句子纠正错字（可顺手勾选「加入热词」），提升后续准确率
+4. **一键整理**：点右上角「开始整理」，自动生成整理稿与会议纪要
+
+详情页四个 Tab：
+
+- **原文**：带说话人配色和时间戳，点击跳转音频
+- **整理版**：去口语化的通顺文字
+- **会议总结**：核心议题 / 决议 / 待办
+- **原文↔整理对照**：左右双栏，滚动联动
+
+顶部可导出 `.md` / `.txt` / `.srt`；说话人 chip 点击可改成真实名字。
+
 ## 预下载模型（推荐）
 
-FunASR 需要 4 个模型（ASR / VAD / 标点 / 说话人），共约 3-4GB。首次运行时
-FunASR SDK 会从 modelscope 自动下载，但 macOS 上 uv 装的 Python 是临时签名，
-偶发会出现网络访问限制。推荐**在启动服务之前**用 `git clone` 预下载——`git`
-是 Apple 签名，走系统网络路径，更稳。
-
-### 方法 A：用脚本自动下载
+FunASR 需要 4 个模型（ASR / VAD / 标点 / 说话人），共约 3–4 GB。直接启动也能自动下载，但 macOS 上 uv 装的 Python 是临时签名，偶发网络受限。**启动前用 `git clone` 预下载更稳**（git 是 Apple 签名，走系统网络）。
 
 ```bash
-bash scripts/download_models.sh
+bash scripts/download_models.sh          # 默认下载到 ./models/
+# 或指定路径：
+bash scripts/download_models.sh /path/to/models   # 并在 config.yaml 改 asr.cache_dir
 ```
 
-默认下载到 `./models/`，下载完后 `app/asr.py` 启动时会自动识别本地目录并跳过
-SDK 下载。
-
-也可以指定其他路径：
+手动 clone（目录名须严格对应）：
 
 ```bash
-bash scripts/download_models.sh /path/to/models
-# 然后在 config.yaml 改 asr.cache_dir: /path/to/models
-```
-
-### 方法 B：手动 git clone
-
-```bash
-mkdir -p models && cd models
-git lfs install
-
+mkdir -p models && cd models && git lfs install
 git clone --depth 1 https://www.modelscope.cn/iic/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch.git paraformer-zh
 git clone --depth 1 https://www.modelscope.cn/iic/speech_fsmn_vad_zh-cn-16k-common-pytorch.git fsmn-vad
 git clone --depth 1 https://www.modelscope.cn/iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch.git ct-punc
 git clone --depth 1 https://www.modelscope.cn/iic/speech_campplus_sv_zh-cn_16k-common.git campp
 ```
 
-目录名要严格对应（`paraformer-zh` / `fsmn-vad` / `ct-punc` / `campp`），否则
-`app/asr.py` 无法识别。
+## 配置
 
-### 方法 C：用 modelscope SDK 下载
-
-如果你环境正常，直接启动服务就行：
-
-```bash
-./run.sh
-```
-
-第一次推理时 FunASR 会自己从 modelscope 下载到 `asr.cache_dir`（默认 `./models/`）。
-下载过程没有进度回调，60 分钟音频的首次任务可能卡在 "语音识别" 阶段 10-20 分钟，
-属于正常现象。
-
-### 模型下载失败的网络排查
-
-```bash
-# 1. 测试直连
-curl -sS -o /dev/null -w "%{http_code}\n" https://www.modelscope.cn/
-
-# 2. 如果 curl 通但 Python 不通（macOS mDNSResponder 偶发问题）
-cp dns_hosts.txt.example dns_hosts.txt
-# 编辑 dns_hosts.txt，填入 curl 测试可用的 IP（用 dig / nslookup 查）
-# 启动服务时会自动加载
-
-# 3. 如果用代理
-export HTTPS_PROXY=http://your-proxy:port
-./run.sh
-```
-
-浏览器打开 `http://127.0.0.1:8000`。
-
-## 配置说明
-
-编辑 `config.yaml`：
+绝大多数配置都能在网页「设置」里完成（数据目录 / LLM / 热词）。需要时也可直接编辑 `config.yaml`：
 
 | 字段 | 说明 |
 |---|---|
 | `asr.cache_dir` | FunASR 模型缓存目录，默认 `./models` |
-| `asr.hub` | `ms` (ModelScope，默认) 或 `hf` |
+| `asr.hub` | `ms`（ModelScope，默认）或 `hf` |
 | `llm.mode` | `api` 或 `ollama` |
-| `llm.api.*` | OpenAI 兼容 API 配置（base_url / api_key / model） |
-| `llm.ollama.*` | 本地 Ollama 配置 |
-| `llm.polish_chunk_minutes` | 整理时分段时长（分钟），默认 6 |
+| `llm.api.*` | OpenAI 兼容 API（base_url / api_key / model） |
+| `llm.ollama.*` | 本地 Ollama（base_url / model） |
+| `llm.polish_chunk_minutes` | 整理分段时长（分钟），默认 6 |
 
-`api_key` 用 `${LLM_API_KEY}` 占位，从环境变量读取。
+`api_key` 支持 `${LLM_API_KEY}` 占位，从环境变量读取。
 
-## 使用 Ollama 本地模型
+### LLM 示例
 
+**Ollama 本地：**
 ```bash
-# 安装并启动 ollama
-ollama pull qwen2.5:7b
-ollama serve
-
-# 修改 config.yaml: llm.mode: ollama
-./run.sh
+ollama pull qwen2.5:7b && ollama serve
+# config.yaml: llm.mode: ollama
 ```
-
-## 使用其他 LLM（示例）
 
 **DeepSeek：**
 ```yaml
 llm:
   mode: api
-  api:
-    base_url: "https://api.deepseek.com/v1"
-    api_key: "${LLM_API_KEY}"
-    model: "deepseek-chat"
+  api: { base_url: "https://api.deepseek.com/v1", api_key: "${LLM_API_KEY}", model: "deepseek-chat" }
 ```
 
 **通义千问：**
 ```yaml
 llm:
   mode: api
-  api:
-    base_url: "https://dashscope.aliyun.com/compatible-mode/v1"
-    api_key: "${LLM_API_KEY}"
-    model: "qwen-plus"
+  api: { base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1", api_key: "${LLM_API_KEY}", model: "qwen-plus" }
 ```
 
-**OpenAI：**
-```yaml
-llm:
-  mode: api
-  api:
-    base_url: "https://api.openai.com/v1"
-    api_key: "${LLM_API_KEY}"
-    model: "gpt-4o-mini"
-```
+## 性能参考
 
-## 使用流程
-
-1. 启动后访问 `http://127.0.0.1:8000`
-2. 拖入会议音频文件，填写标题，点"开始转录"
-3. 等待 pipeline：音频转换 → 语音识别 → LLM 整理 → LLM 总结
-4. 详情页提供 4 个视图：
-   - **原文**：带说话人和时间戳，点击任意句跳转音频
-   - **整理版**：去口语化的规范文字
-   - **会议总结**：核心议题 / 决议 / 待办
-   - **原文↔整理对照**：左右双栏，滚动联动
-5. 顶部可导出 `.md` / `.txt` / `.srt`
-
-## 长音频说明
-
-- 60-90 分钟音频：FunASR VAD 自动切片 + Paraformer 分批推理
-- M4 16GB 估算耗时：音频时长 × 0.25（例：60 分钟音频约 15 分钟处理）
-- 进度条为估算，ASR 阶段无精确回调
+- 81 分钟访谈（GPU：RTX 4060 Ti）：识别约 2 分钟（RTF ≈ 0.025），完整流程约 7–8 分钟
+- CPU 模式：约音频时长 × 0.25（60 分钟音频 ≈ 15 分钟）
+- 支持 60–90 分钟长音频（VAD 自动切片 + 分批推理）
 
 ## 故障排查
 
-### 首次启动卡在"语音识别"或下载超时
-
-FunASR 从 modelscope.cn 下载模型。如果系统 DNS 或网络问题导致解析失败：
+**首次启动卡在「语音识别」/ 模型下载超时**——多为 modelscope.cn 的 DNS 或网络问题：
 
 ```bash
-# 1. 测试直连
-curl -sS -o /dev/null -w "%{http_code}\n" https://www.modelscope.cn/
-
-# 2. 如果 curl 通但 Python 不通（macOS mDNSResponder 偶发问题）
-#    用 dns_hosts.txt 绕过系统 DNS：
-cp dns_hosts.txt.example dns_hosts.txt
-# 编辑 dns_hosts.txt，填入 curl 测试可用的 IP（用 dig / nslookup 查）
-# 启动服务时会自动加载
-
-# 3. 如果用代理
-export HTTPS_PROXY=http://your-proxy:port
-./run.sh
+curl -sS -o /dev/null -w "%{http_code}\n" https://www.modelscope.cn/   # 1. 测直连
+cp dns_hosts.txt.example dns_hosts.txt   # 2. curl 通但 Python 不通时，填可用 IP 绕过 DNS
+export HTTPS_PROXY=http://your-proxy:port && ./run.sh   # 3. 走代理
 ```
 
-### LLM 调用失败
+**LLM 调用失败**——api 模式检查 `LLM_API_KEY` 与 `base_url`；ollama 模式确认 `ollama serve` 已启动、模型在 `ollama list` 中。整理失败的段落会标记 `[整理失败]`，可在详情页点「重新整理」。
 
-- API 模式：检查 `LLM_API_KEY` 环境变量是否设置、`base_url` 是否正确
-- Ollama 模式：检查 `ollama serve` 是否启动、模型名是否在 `ollama list` 中
-- 整理失败的句子会标记 `[整理失败]`，可在详情页点"重试 LLM"
-
-### 推理模型（Qwen3、DeepSeek-R1）输出含思考过程
-
-代码已自动剥离 `<think>...</think>` 块。如果换用其他会输出推理过程的模型，请保留此清理逻辑。
+**推理模型（Qwen3 / DeepSeek-R1）输出含思考过程**——代码已自动剥离 `<think>...</think>`，换用其他推理模型请保留该清理。
 
 ## 已知限制
 
-- 说话人分离基于音色聚类，可能因设备/位置变化拆分或合并 ID
-- LLM 整理可能轻微改变原意，对照视图可用于核对
-- 无用户认证，仅适合本地运行
-- 进行中的任务状态保存在内存，重启服务会丢失（已完成会议数据在磁盘上）
+- 说话人分离基于音色聚类，设备/位置变化可能导致 ID 拆分或合并
+- LLM 整理可能轻微改变原意，可用「对照」Tab 核对
+- 无用户认证，仅适合本地或可信局域网运行
+- 进行中的任务状态存内存，重启服务会丢失（已完成会议数据在磁盘上）
 
 ## 项目结构
 
 ```
 app/
-  config.py    配置加载（${ENV_VAR} 展开）
-  audio.py     ffmpeg 转换 wrapper
-  asr.py       FunASR AutoModel 单例封装
-  llm.py       polish + summarize（分段 + map-reduce）
-  storage.py   data/ 目录 CRUD
-  tasks.py     异步 pipeline + 进度估算
-  main.py      FastAPI 路由
-static/
-  index.html   首页（上传 + 历史）
-  meeting.html 详情页（4 Tab）
-  app.js       首页交互
-  style.css    样式
-data/          会议数据（gitignore）
-models/        FunASR 模型缓存（gitignore）
-test/          单元测试 + 冒烟脚本
+  config.py   配置加载（${ENV_VAR} 展开）
+  audio.py    ffmpeg 转换
+  asr.py      FunASR AutoModel 封装（GPU 优先）
+  llm.py      整理 + 总结（分段 + map-reduce）
+  storage.py  data/ 目录 CRUD
+  tasks.py    异步 pipeline + 进度
+  main.py     FastAPI 路由
+static/       首页 / 详情页 / 样式
+data/         会议数据（gitignore）
+models/       FunASR 模型缓存（gitignore）
+test/         单元测试 + 冒烟脚本
 ```
 
 ## License

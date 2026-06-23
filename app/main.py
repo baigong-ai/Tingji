@@ -71,7 +71,7 @@ async def upload(
 ):
     ext = (audio.filename or "").rsplit(".", 1)[-1].lower()
     if ext not in ALLOWED_AUDIO_EXTS:
-        raise HTTPException(415, detail=f"unsupported format: {ext}")
+        raise HTTPException(415, detail=f"不支持的音频格式：.{ext or '未知'}（仅支持 wav / mp3 / m4a / aac / flac / ogg / opus）")
     uploads_dir = storage.DATA_DIR / "uploads"
     uploads_dir.mkdir(parents=True, exist_ok=True)
     tmp_path = uploads_dir / f"upload_{asyncio.get_event_loop().time()}.{ext}"
@@ -110,14 +110,14 @@ async def get_settings():
 async def set_settings(payload: dict):
     new_dir = (payload.get("data_dir") or "").strip()
     if not new_dir:
-        raise HTTPException(400, "data_dir required")
+        raise HTTPException(400, "请选择数据目录")
     try:
         p = Path(new_dir).expanduser().resolve()
         p.mkdir(parents=True, exist_ok=True)
         (p / ".write_test").write_text("ok", encoding="utf-8")
         (p / ".write_test").unlink()
     except Exception as e:
-        raise HTTPException(400, f"path not writable: {e}")
+        raise HTTPException(400, f"该目录不可写：{e}")
     previous = str(storage.get_data_dir())
     _persist_data_dir(str(p))
     storage.set_data_dir(str(p))
@@ -128,14 +128,14 @@ async def set_settings(payload: dict):
 async def test_settings(payload: dict):
     d = (payload.get("data_dir") or "").strip()
     if not d:
-        raise HTTPException(400, "data_dir required")
+        raise HTTPException(400, "请选择数据目录")
     try:
         p = Path(d).expanduser().resolve()
         p.mkdir(parents=True, exist_ok=True)
         (p / ".write_test").write_text("ok", encoding="utf-8")
         (p / ".write_test").unlink()
     except Exception as e:
-        raise HTTPException(400, f"path not writable: {e}")
+        raise HTTPException(400, f"该目录不可写：{e}")
     return {"data_dir": str(p), "writable": True}
 
 
@@ -158,10 +158,10 @@ def _copytree_files_only(src: Path, dst: Path) -> None:
 async def migrate_data(payload: dict):
     from_dir = (payload.get("from_dir") or "").strip()
     if not from_dir:
-        raise HTTPException(400, "from_dir required")
+        raise HTTPException(400, "请指定来源目录")
     src = Path(from_dir).expanduser().resolve()
     if not src.exists():
-        raise HTTPException(400, f"source not exist: {from_dir}")
+        raise HTTPException(400, f"来源目录不存在：{from_dir}")
     dst = storage.get_data_dir()
     moved, errors = [], []
     for item in src.iterdir():
@@ -452,7 +452,7 @@ async def rename_speakers(meeting_id: str, payload: dict):
         raise HTTPException(404)
     names = payload.get("names", {})
     if not isinstance(names, dict):
-        raise HTTPException(400, "names must be a dict")
+        raise HTTPException(400, "说话人名格式错误")
     storage.update_meta(meeting_id, speaker_names=names)
     return {"ok": True, "speaker_names": names}
 
@@ -465,16 +465,16 @@ async def edit_sentence(meeting_id: str, payload: dict):
     try:
         idx = int(idx)
     except (TypeError, ValueError):
-        raise HTTPException(400, "index must be int")
+        raise HTTPException(400, "句子序号格式错误")
     text = (payload.get("text") or "").strip()
     if not text:
-        raise HTTPException(400, "text required")
+        raise HTTPException(400, "句子内容不能为空")
     data = storage.get_meeting(meeting_id)
     if data is None or data.get("raw") is None:
-        raise HTTPException(404, "no raw transcript")
+        raise HTTPException(404, "尚无识别结果，无法编辑")
     sentences = data["raw"].get("sentences") or []
     if idx < 0 or idx >= len(sentences):
-        raise HTTPException(400, "index out of range")
+        raise HTTPException(400, "句子序号超出范围")
     sentences[idx]["text"] = text
     storage.save_raw(meeting_id, data["raw"])
     return {"ok": True, "index": idx, "text": text}
@@ -497,7 +497,7 @@ async def get_hotwords():
 async def set_hotwords(payload: dict):
     words = payload.get("hotwords") or []
     if not isinstance(words, list):
-        raise HTTPException(400, "hotwords must be a list")
+        raise HTTPException(400, "热词格式错误")
     non_empty = [str(w).strip() for w in words if str(w).strip()]
     seen, cleaned = set(), []
     for w in non_empty:

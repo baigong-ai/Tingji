@@ -2,19 +2,45 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <title>FunASR 会议转录</title>
-  <link rel="stylesheet" href="/static/style.css?v=3">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>听记 · 会议录音转写</title>
+  <link rel="stylesheet" href="/static/style.css?v=4">
 </head>
 <body>
   <header>
-    <h1>FunASR 会议转录</h1>
+    <h1>听记 <span class="brand-sub">会议录音转写 · 基于 FunASR</span></h1>
     <button id="settings-btn" class="header-btn">设置</button>
   </header>
   <main class="container">
     <div id="onboard-bar" class="onboard-bar hidden"></div>
     <div id="access-info" class="access-info hidden"></div>
+
+    <div class="steps">
+      <div class="step">
+        <span class="num">1</span>
+        <div class="step-title">上传录音</div>
+        <div class="step-desc">拖入或选择音频文件，填写会议标题</div>
+      </div>
+      <div class="step">
+        <span class="num">2</span>
+        <div class="step-title">校对原文</div>
+        <div class="step-desc">识别完成后，双击任意句子纠正错字，可顺手加入热词</div>
+      </div>
+      <div class="step">
+        <span class="num">3</span>
+        <div class="step-title">一键整理</div>
+        <div class="step-desc">点「开始整理」，自动生成会议纪要与待办事项</div>
+      </div>
+    </div>
+
     <section class="upload-card">
       <div id="dropzone" class="dropzone">
+        <svg class="upload-icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#2b6cb0" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="9" y="3" width="6" height="11" rx="3"/>
+          <path d="M5 11a7 7 0 0 0 14 0"/>
+          <line x1="12" y1="18" x2="12" y2="21"/>
+          <line x1="8" y1="21" x2="16" y2="21"/>
+        </svg>
         <p>拖拽音频文件到此，或点击选择</p>
         <p class="hint">支持 wav / mp3 / m4a / aac / flac / ogg / opus</p>
         <input id="file-input" type="file" accept="audio/*,.m4a,.aac,.opus" hidden>
@@ -29,7 +55,7 @@
       </div>
       <div id="error" class="error hidden"></div>
     </section>
-    <section>
+    <section class="upload-card">
       <h2>历史会议</h2>
       <ul id="history" class="history-list"></ul>
     </section>
@@ -45,6 +71,7 @@
       </div>
 
       <div class="spanel active" data-spanel="dir">
+        <p class="hint">会议录音、识别结果、整理纪要都会保存在这里。可改成你自己的目录。</p>
         <div class="dir-browser">
           <div class="dir-current">当前: <code id="dir-current">-</code></div>
           <ul id="dir-list" class="dir-list"></ul>
@@ -64,6 +91,7 @@
       </div>
 
       <div class="spanel" data-spanel="llm">
+        <p class="hint">用于把口语化的原文整理成通顺的会议纪要。可填本地 Ollama 或在线 API。</p>
         <div class="radio-row">
           <label><input type="radio" name="llm-mode" value="ollama" checked> Ollama 本地</label>
           <label><input type="radio" name="llm-mode" value="api"> 在线 API</label>
@@ -87,8 +115,8 @@
       </div>
 
       <div class="spanel" data-spanel="hotwords">
-        <p class="hint">每行一个热词（短语效果最好：人名/地名/专业术语）。保存后下次识别自动加载，提升相关词的准确率。</p>
-        <textarea id="hotwords-text" rows="10" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px;font-family:inherit;box-sizing:border-box;resize:vertical;"></textarea>
+        <p class="hint">每行一个热词（短语效果最好：人名 / 地名 / 专业术语）。保存后下次识别自动加载，提升相关词的准确率。手动纠正句子时也可勾选「加入热词」。</p>
+        <textarea id="hotwords-text" rows="10" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:inherit;box-sizing:border-box;resize:vertical;"></textarea>
         <div id="hotwords-result" class="settings-result"></div>
         <div class="modal-actions"><button id="hotwords-save-btn" class="primary" type="button">保存热词</button></div>
       </div>
@@ -99,6 +127,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=4"></script>
+  <script src="/static/app.js?v=5"></script>
 </body>
 </html>

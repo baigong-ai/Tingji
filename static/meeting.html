@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <title>会议详情 · FunASR</title>
-  <link rel="stylesheet" href="/static/style.css?v=3">
+  <link rel="stylesheet" href="/static/style.css?v=4">
   <style>
     .nav-sticky { position: sticky; top: 0; background: #fff; z-index: 10; padding-top: 8px; }
     .search-bar { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
@@ -48,7 +48,10 @@
       position: sticky; bottom: 0; background: #fff;
       padding: 10px 16px; border-top: 1px solid #e5e7eb; display: flex; gap: 12px; align-items: center;
     }
-    .retry-btn { background: #b91c1c; }
+    .retry-btn { background: #2b6cb0; }
+    .retry-btn:hover { background: #1e5a99; }
+    .back-link { color: #fff; text-decoration: none; display: inline-flex; align-items: center; opacity: .85; margin-right: 4px; }
+    .back-link:hover { opacity: 1; }
     .export-row { display: flex; gap: 8px; align-items: center; margin-left: auto; }
     .export-row select { padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; }
     .meta-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-size: 13px; color: #6b7280; }
@@ -65,7 +68,7 @@
 </head>
 <body>
   <header>
-    <h1><a href="/" style="color:#fff;text-decoration:none;">◄</a> <span id="m-title">会议</span></h1>
+    <h1><a href="/" class="back-link" title="返回首页"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></a><span id="m-title">会议</span></h1>
   </header>
   <main class="container">
     <div class="meta-row">
@@ -84,7 +87,7 @@
 
     <div class="nav-sticky">
       <div class="search-bar">
-        <input id="search-input" type="text" placeholder="搜索当前页内容（原文/整理版/总结/对照）…">
+        <input id="search-input" type="text" placeholder="搜索内容…">
         <span id="search-count" class="search-count"></span>
         <button id="search-prev" type="button" class="mini" title="上一个 (Shift+Enter)">▲</button>
         <button id="search-next" type="button" class="mini" title="下一个 (Enter)">▼</button>
@@ -160,6 +163,15 @@
       const sec = s % 60;
       return `${m}:${String(sec).padStart(2,'0')}`;
     }
+    function fmtDate(iso) {
+      if (!iso) return '--';
+      const d = new Date(iso);
+      if (isNaN(d)) return iso;
+      const pad = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+    const SPEAKER_COLORS = ['#2b6cb0', '#15803d', '#7c3aed', '#c2410c', '#be185d', '#0891b2', '#ca8a04'];
+    function spkColor(spk) { return SPEAKER_COLORS[Number(spk) % SPEAKER_COLORS.length] || SPEAKER_COLORS[0]; }
     function escapeHtml(s) {
       return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     }
@@ -237,7 +249,7 @@
         div.dataset.end = s.end;
         div.dataset.idx = i;
         div.title = '双击编辑';
-        div.innerHTML = `<span class="ts">[${fmtTs(s.start)}]</span><span class="spk">${escapeHtml(spkLabel(s.spk))}</span><span>${escapeHtml(s.text)}</span>`;
+        div.innerHTML = `<span class="ts">[${fmtTs(s.start)}]</span><span class="spk" style="color:${spkColor(s.spk)}">${escapeHtml(spkLabel(s.spk))}</span><span>${escapeHtml(s.text)}</span>`;
         if (clickable) {
           div.addEventListener('click', () => {
             audioPlayer.currentTime = s.start / 1000;
@@ -350,7 +362,11 @@
       bar.innerHTML = '<span class="label">说话人（点改名）:</span>';
       for (let i = 0; i < count; i++) {
         const chip = document.createElement('span');
+        const c = spkColor(i);
         chip.className = 'spk-chip';
+        chip.style.color = c;
+        chip.style.borderColor = c;
+        chip.style.background = c + '14';
         chip.innerHTML = `${escapeHtml(spkLabel(i))} <span class="edit">改名</span>`;
         chip.addEventListener('click', () => editSpeaker(i));
         bar.appendChild(chip);
@@ -567,7 +583,7 @@
           ? `${Math.floor(meta.duration_ms/60000)}分${Math.floor((meta.duration_ms%60000)/1000)}秒`
           : '--';
         document.getElementById('m-meta').textContent =
-          `${meta.created_at} · ${durationStr} · ${meta.spk_count} 人 · ${statusLabel(meta.status)}`;
+          `${fmtDate(meta.created_at)} · ${durationStr} · ${meta.spk_count} 人 · ${statusLabel(meta.status)}`;
         currentStatus = meta.status;
         const retryBtn = document.getElementById('retry-btn');
         const processing = ['pending','converting','asr_running','llm_polishing','llm_summarizing'];
