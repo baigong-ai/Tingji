@@ -2,12 +2,6 @@
    听记 Tingji · 纸张札记 (Editorial / Marginalia) 设计语言
    ============================================================ */
 
-/* --- 字体 --- */
-/* 中文：思源宋体（开源、有书卷气、有 weight 变化） */
-/* 英文/数字：Lora（与宋体气质相近的开源衬线） */
-/* 等宽：JetBrains Mono */
-@import url('https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Noto+Serif+SC:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-
 :root {
   /* 纸与墨 */
   --paper: #faf8f3;          /* 纸张暖白 */
@@ -47,10 +41,12 @@
   --shadow-deep: 0 2px 8px rgba(26, 24, 20, 0.08), 0 16px 40px rgba(26, 24, 20, 0.12);
   --tx: 220ms cubic-bezier(0.2, 0.7, 0.2, 1);
 
-  /* 字 */
-  --font-serif: "Noto Serif SC", "Songti SC", "STSong", "Lora", "Source Han Serif SC", serif;
-  --font-display: "Lora", "Noto Serif SC", serif;
-  --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  /* 字：优先用系统自带的"书卷"字体，避免外网字体阻塞渲染 */
+  /* 中文衬线：Mac 用 Songti SC，Win 用 SimSun，Linux 用 Noto Serif CJK SC */
+  /* 英文衬线：Georgia / Times — 系统几乎都有 */
+  --font-serif: "Songti SC", "STSong", "SimSun", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, "Times New Roman", serif;
+  --font-display: Georgia, "Songti SC", "STSong", "SimSun", "Noto Serif CJK SC", "Times New Roman", serif;
+  --font-mono: "SF Mono", Menlo, Consolas, "JetBrains Mono", "Courier New", monospace;
   --font-body: var(--font-serif);
 }
 
