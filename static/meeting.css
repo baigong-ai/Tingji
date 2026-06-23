@@ -42,18 +42,29 @@
 .export-row {
   display: flex;
   gap: 8px;
-  align-items: center;
+  align-items: stretch;
   flex-shrink: 0;
   flex-wrap: nowrap;
   white-space: nowrap;
 }
-.export-row select {
-  padding: 6px 10px;
-  border: 1px solid var(--paper-edge);
+/* 三个控件统一高度 + padding，视觉等高对齐 */
+.export-row select,
+.export-row button {
+  height: 34px;
+  padding: 0 14px;
+  font-size: 13px;
+  line-height: 1;
   border-radius: var(--r-sm);
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.export-row select {
+  padding-right: 28px;  /* 给箭头留位置 */
+  border: 1px solid var(--paper-edge);
   background: var(--paper);
   font-family: var(--font-mono);
-  font-size: 12px;
   color: var(--ink);
   cursor: pointer;
 }
@@ -378,20 +389,20 @@ mark.search-hit.current {
   font-weight: 600;
 }
 
-/* --- 重试按钮（CTA 风格） --- */
+/* --- 重试按钮（CTA 风格，由 .export-row 统一控制尺寸） --- */
 .retry-btn {
-  background: var(--seal) !important;
-  color: var(--paper) !important;
-  padding: 9px 18px !important;
+  background: var(--seal);
+  color: var(--paper);
   white-space: nowrap;
   flex-shrink: 0;
 }
 .retry-btn:hover:not(:disabled) {
-  background: var(--seal-deep) !important;
+  background: var(--seal-deep);
 }
 .retry-btn:disabled {
-  background: var(--paper-edge) !important;
-  color: var(--ink-ghost) !important;
+  background: var(--paper-edge);
+  color: var(--ink-ghost);
+  cursor: not-allowed;
 }
 
 /* --- 音频条（底部固定） --- */

@@ -170,26 +170,6 @@ header h1 .brand-sub::before { content: "·  "; opacity: 0.5; }
   border-color: var(--header-btn-border-hover);
 }
 
-/* 字体切换按钮（在设置按钮左侧） */
-.header-btn-font {
-  font-family: var(--font-display);
-  padding: 7px 14px;
-  min-width: 56px;
-  text-align: center;
-  font-feature-settings: "kern" 1;
-}
-.header-btn-font .font-label {
-  opacity: 0.55;
-  font-size: 11px;
-  margin-right: 4px;
-  letter-spacing: 0.06em;
-}
-.header-btn-font #font-name {
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
 /* header 右侧容器（access-info + 设置按钮） */
 .header-right {
   display: flex;
@@ -256,7 +236,7 @@ header h1 .brand-sub::before { content: "·  "; opacity: 0.5; }
   padding: 0 28px;
 }
 
-/* === 步骤（单行横排，紧凑） === */
+/* === 步骤（num + title 一行；描述换行） === */
 .steps {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -264,12 +244,12 @@ header h1 .brand-sub::before { content: "·  "; opacity: 0.5; }
   margin-bottom: 28px;
   border-top: 1px solid var(--paper-edge);
   border-bottom: 1px solid var(--paper-edge);
-  padding: 14px 0;
+  padding: 16px 0;
 }
 .step {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
+  flex-direction: column;
+  gap: 4px;
   padding: 0 24px;
   position: relative;
   text-align: left;
@@ -277,7 +257,7 @@ header h1 .brand-sub::before { content: "·  "; opacity: 0.5; }
 .step:not(:last-child)::after {
   content: "";
   position: absolute;
-  right: 0; top: 4px; bottom: 4px;
+  right: 0; top: 6px; bottom: 6px;
   width: 1px;
   background: var(--paper-edge);
 }
@@ -285,10 +265,10 @@ header h1 .brand-sub::before { content: "·  "; opacity: 0.5; }
   flex: none;
   font-family: var(--font-display);
   font-style: italic;
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 500;
   color: var(--seal);
-  line-height: 1;
+  line-height: 1.2;
   font-feature-settings: "lnum" 1;
 }
 .step .step-title {
@@ -302,13 +282,8 @@ header h1 .brand-sub::before { content: "·  "; opacity: 0.5; }
 .step .step-desc {
   font-size: 12px;
   color: var(--ink-faint);
-  line-height: 1.5;
-  min-width: 0;
-}
-.step .step-title + .step-desc::before {
-  content: "·";
-  margin: 0 6px;
-  color: var(--paper-edge);
+  line-height: 1.55;
+  margin-top: 2px;
 }
 
 /* === 上传卡 === */
