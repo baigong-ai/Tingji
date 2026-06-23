@@ -107,10 +107,18 @@ def format_chunk(chunk: list[dict], mark_failed: bool = False) -> str:
     return "\n".join(lines).strip()
 
 
-def polish(sentences: list[dict], cfg: LLMConfig) -> str:
+def polish(sentences: list[dict], cfg: LLMConfig, on_log=None) -> str:
+    def _log(level, msg):
+        if on_log:
+            try:
+                on_log(level, msg)
+            except Exception:
+                pass
     chunks = chunk_sentences(sentences, cfg.polish_chunk_minutes)
+    _log("info", f"整理: 共 {len(chunks)} 段, 模型 {_model_name(cfg)}")
     outputs = []
-    for chunk in chunks:
+    for i, chunk in enumerate(chunks):
+        _log("info", f"整理第 {i+1}/{len(chunks)} 段 ...")
         prompt = POLISH_PROMPT.format(input=format_chunk(chunk))
         success = False
         for _ in range(cfg.max_retries + 1):
@@ -121,7 +129,9 @@ def polish(sentences: list[dict], cfg: LLMConfig) -> str:
             except Exception as e:
                 log.warning("polish chunk failed: %s", e)
         if not success:
+            _log("warn", f"第 {i+1} 段整理失败, 保留原文")
             outputs.append(format_chunk(chunk, mark_failed=True))
+    _log("info", "整理完成")
     return "\n\n---\n\n".join(outputs)
 
 
@@ -129,11 +139,23 @@ def _split_text(text: str, size: int) -> list[str]:
     return [text[i:i + size] for i in range(0, len(text), size)]
 
 
-def summarize(processed_md: str, cfg: LLMConfig) -> str:
+def summarize(processed_md: str, cfg: LLMConfig, on_log=None) -> str:
+    def _log(level, msg):
+        if on_log:
+            try:
+                on_log(level, msg)
+            except Exception:
+                pass
     if len(processed_md) < 8000:
-        return _chat(SUMMARIZE_PROMPT.format(input=processed_md), cfg)
+        _log("info", f"生成总结, 模型 {_model_name(cfg)}")
+        r = _chat(SUMMARIZE_PROMPT.format(input=processed_md), cfg)
+        _log("info", "总结完成")
+        return r
     chunks = _split_text(processed_md, 6000)
+    _log("info", f"总结: 长文 map-reduce, 切 {len(chunks)} 块")
     partials = []
     for c in chunks:
         partials.append(_chat(SUMMARIZE_PROMPT.format(input=c), cfg))
-    return _chat(REDUCE_PROMPT.format(input="\n\n".join(partials)), cfg)
+    r = _chat(REDUCE_PROMPT.format(input="\n\n".join(partials)), cfg)
+    _log("info", "总结完成")
+    return r

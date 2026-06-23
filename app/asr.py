@@ -75,9 +75,28 @@ def _load_hotword_str() -> str | None:
         return None
 
 
-def transcribe(wav_path: str, cfg: ASRConfig) -> dict:
+def transcribe(wav_path: str, cfg: ASRConfig, on_log=None) -> dict:
+    def _log(level, msg):
+        if on_log:
+            try:
+                on_log(level, msg)
+            except Exception:
+                pass
+    _log("info", "准备 ASR 模型（首次加载较慢）...")
     model = get_model(cfg)
+    try:
+        import torch
+        if torch.cuda.is_available():
+            dev = f"cuda:0 ({torch.cuda.get_device_name(0)})"
+        elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+            dev = "mps (Apple Silicon GPU)"
+        else:
+            dev = "cpu"
+        _log("info", f"ASR 设备: {dev}")
+    except Exception as e:
+        _log("warn", f"无法探测设备: {e}")
     hotword = _load_hotword_str() or cfg.hotword or None
+    _log("info", "开始语音识别 ...")
     res = model.generate(
         input=wav_path,
         batch_size_s=cfg.batch_size_s,
@@ -85,7 +104,9 @@ def transcribe(wav_path: str, cfg: ASRConfig) -> dict:
         sentence_timestamp=True,
         hotword=hotword,
     )
-    return normalize(res)
+    out = normalize(res)
+    _log("info", f"识别完成: {len(out['sentences'])} 句, {out['spk_count']} 位说话人")
+    return out
 
 
 def normalize(funasr_res: list[dict]) -> dict:

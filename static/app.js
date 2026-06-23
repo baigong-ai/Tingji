@@ -333,3 +333,7 @@ async function loadOnboard() {
 
 loadHistory();
 loadOnboard();
+if (new URLSearchParams(location.search).get('settings') === '1') {
+  openSettings();
+  history.replaceState(null, '', '/');
+}

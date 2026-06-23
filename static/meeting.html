@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <title id="m-page-title">会议 · 听记</title>
   <link rel="stylesheet" href="/static/style.css?v=7">
-  <link rel="stylesheet" href="/static/meeting.css?v=6">
+  <link rel="stylesheet" href="/static/meeting.css?v=7">
 </head>
 <body>
   <header>
@@ -18,6 +18,7 @@
     <span id="m-title" class="header-doc-title">会议</span>
     <div class="header-right">
       <div id="access-info-slot" class="header-access hidden"></div>
+      <button id="log-btn" class="header-btn">日志</button>
       <button id="settings-btn" class="header-btn">设置</button>
     </div>
   </header>
@@ -99,12 +100,23 @@
     </div>
   </div>
 
+  <div id="log-modal" class="modal hidden">
+    <div class="modal-card modal-card-wide">
+      <h3>实时日志</h3>
+      <pre id="log-body" class="log-body"></pre>
+      <div class="modal-actions">
+        <span id="log-status-hint" class="log-status-hint"></span>
+        <button id="log-close-btn" type="button">关闭</button>
+      </div>
+    </div>
+  </div>
+
   <div class="audio-bar">
     <audio id="audio-player" controls preload="metadata"></audio>
   </div>
 
   <script src="/static/access.js?v=1"></script>
   <script src="/static/marked.min.js?v=1"></script>
-  <script src="/static/meeting.js?v=6"></script>
+  <script src="/static/meeting.js?v=7"></script>
 </body>
 </html>

@@ -63,22 +63,22 @@ document.getElementById('export-btn').addEventListener('click', () => {
   const fmt = document.getElementById('export-format').value;
   location.href = `/api/meetings/${meetingId}/export?format=${fmt}`;
 });
-document.getElementById('retry-btn').addEventListener('click', async () => {
+async function runPolish() {
   const btn = document.getElementById('retry-btn');
   const msg = currentStatus === 'asr_done' ? '开始整理 + 总结？' : '重新调用 LLM 整理 + 总结？';
   if (!confirm(msg)) return;
-  btn.disabled = true;
-  const origText = btn.textContent;
+  if (btn) btn.disabled = true;
+  const origText = btn ? btn.textContent : '';
   try {
     const r = await fetch(`/api/meetings/${meetingId}/retry-llm`, { method: 'POST' });
     if (!r.ok) throw new Error('提交失败');
     const { task_id } = await r.json();
-    btn.textContent = '整理中…';
+    if (btn) btn.textContent = '整理中…';
     await new Promise((resolve, reject) => {
       const timer = setInterval(async () => {
         try {
           const s = await fetch(`/api/tasks/${task_id}`).then(x => x.json());
-          btn.textContent = `整理中… ${s.progress}%`;
+          if (btn) btn.textContent = `整理中… ${s.progress}%`;
           if (s.status === 'done') { clearInterval(timer); resolve(); }
           else if (s.status === 'error') { clearInterval(timer); reject(new Error(s.error || '整理失败')); }
         } catch (e) { clearInterval(timer); reject(e); }
@@ -86,10 +86,13 @@ document.getElementById('retry-btn').addEventListener('click', async () => {
     });
     location.reload();
   } catch (e) {
-    btn.disabled = false;
-    btn.textContent = origText;
+    if (btn) { btn.disabled = false; btn.textContent = origText; }
     alert('整理失败: ' + e.message);
   }
+}
+document.getElementById('retry-btn').addEventListener('click', runPolish);
+document.getElementById('settings-btn').addEventListener('click', () => {
+  location.href = '/?settings=1';
 });
 
 function renderRaw(container, sentences, clickable) {
@@ -105,13 +108,12 @@ function renderRaw(container, sentences, clickable) {
     div.dataset.start = s.start;
     div.dataset.end = s.end;
     div.dataset.idx = i;
-    div.title = '单击跳转播放 · 双击编辑';
+    div.title = '单击跳转定位 · 双击编辑';
     // CSS 接管颜色：不再写 inline style
     div.innerHTML = `<span class="ts">[${fmtTs(s.start)}]</span><span class="spk ${spkClass(s.spk)}">${escapeHtml(spkLabel(s.spk))}</span><span class="text">${escapeHtml(s.text)}</span>`;
     if (clickable) {
       div.addEventListener('click', () => {
         audioPlayer.currentTime = s.start / 1000;
-        audioPlayer.play();
       });
     }
     div.addEventListener('dblclick', () => editSentence(i));
@@ -380,7 +382,13 @@ function jaccard(a, b) {
 function renderAll() {
   renderSpeakersBar(allSpkCount);
   renderRaw(document.getElementById('transcript'), allSentences, true);
-  document.getElementById('processed-md').innerHTML = renderProcessedSegments(currentProcessed, allSentences);
+  const procEl = document.getElementById('processed-md');
+  if (!currentProcessed && currentStatus === 'asr_done') {
+    procEl.innerHTML = `<div class="empty-cta"><p class="empty-state">原文已识别完成，可以整理成会议纪要了</p><button class="primary start-polish-btn">开始整理</button></div>`;
+    procEl.querySelector('.start-polish-btn').addEventListener('click', runPolish);
+  } else {
+    procEl.innerHTML = renderProcessedSegments(currentProcessed, allSentences);
+  }
   document.getElementById('summary-md').innerHTML = renderMd(currentSummary);
   // 对照视图：左原文逐句，右整理段独立；hover 跨栏关键词定位
   const cmp = renderCompare(currentProcessed, allSentences);
@@ -577,6 +585,43 @@ document.getElementById('search-input').addEventListener('keydown', e => {
 });
 document.getElementById('search-next').addEventListener('click', nextHit);
 document.getElementById('search-prev').addEventListener('click', prevHit);
+
+// === live log viewer ===
+let logTimer = null;
+const logModal = document.getElementById('log-modal');
+const logBody = document.getElementById('log-body');
+const logStatusHint = document.getElementById('log-status-hint');
+document.getElementById('log-btn').addEventListener('click', async () => {
+  logModal.classList.remove('hidden');
+  await refreshLog();
+  logTimer = setInterval(refreshLog, 1500);
+});
+document.getElementById('log-close-btn').addEventListener('click', closeLog);
+logModal.addEventListener('click', e => { if (e.target === logModal) closeLog(); });
+function closeLog() {
+  logModal.classList.add('hidden');
+  if (logTimer) { clearInterval(logTimer); logTimer = null; }
+}
+async function refreshLog() {
+  try {
+    const d = await fetch(`/api/meetings/${meetingId}/logs`).then(r => r.json());
+    logBody.innerHTML = (d.logs || []).map(l => {
+      const cls = l.level === 'error' ? 'log-err' : (l.level === 'warn' ? 'log-warn' : '');
+      let ts = '';
+      if (l.ts) {
+        const t = new Date(l.ts * 1000);
+        const p = n => String(n).padStart(2, '0');
+        ts = `${p(t.getHours())}:${p(t.getMinutes())}:${p(t.getSeconds())}`;
+      }
+      return `<span class="${cls}">[${ts}] ${escapeHtml(l.msg)}</span>`;
+    }).join('\n');
+    logBody.scrollTop = logBody.scrollHeight;
+    if (d.step) logStatusHint.textContent = `${d.step} · ${d.progress}%`;
+    if (['done', 'error', 'asr_done'].includes(d.status) && logTimer) {
+      clearInterval(logTimer); logTimer = null;
+    }
+  } catch {}
+}
 
 function bindScrollSync() {
   // 旧的两栏独立滚动同步已废弃：对照改为按行对齐后无需联动

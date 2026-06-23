@@ -31,6 +31,7 @@ def register_task(meeting_id: str) -> dict:
         "error": None,
         "started_at": 0.0,
         "estimated_total_s": 0.0,
+        "logs": [],
     }
     _tasks[task_id] = state
     return state
@@ -51,6 +52,30 @@ def get_progress(task_id: str) -> Optional[dict]:
 def update(task_id: str, **fields) -> None:
     if task_id in _tasks:
         _tasks[task_id].update(fields)
+
+
+def append_log(meeting_id: str, level: str, msg: str) -> None:
+    for st in _tasks.values():
+        if st["meeting_id"] == meeting_id:
+            st["logs"].append({"ts": time.time(), "level": level, "msg": msg})
+            if len(st["logs"]) > 300:
+                st["logs"] = st["logs"][-300:]
+            return
+
+
+def get_logs(meeting_id: str) -> dict:
+    for st in _tasks.values():
+        if st["meeting_id"] == meeting_id:
+            return {"status": st["status"], "progress": st["progress"], "step": st["step"], "logs": st["logs"]}
+    meta = storage.get_meeting(meeting_id)
+    status = meta["meta"]["status"] if meta else "unknown"
+    return {"status": status, "progress": 0, "step": "", "logs": []}
+
+
+def _log_cb(meeting_id: str):
+    def cb(level, msg):
+        append_log(meeting_id, level, msg)
+    return cb
 
 
 def advance_asr_progress(task_id: str, elapsed_s: float) -> None:
@@ -85,12 +110,14 @@ async def run_pipeline(meeting_id: str, cfg) -> None:
 
 async def _convert_audio(task_id, meeting_id, cfg) -> None:
     update(task_id, status="converting", progress=0, step="音频转换")
+    append_log(meeting_id, "info", "音频转换: 转为 16kHz wav ...")
     mdir = storage.meeting_dir(meeting_id)
     meta = storage.get_meeting(meeting_id)["meta"]
     src = mdir / meta["audio_file"]
     dst = mdir / "audio_wav.wav"
     audio.convert_to_wav(str(src), str(dst))
     duration_ms = audio.get_duration_ms(str(dst))
+    append_log(meeting_id, "info", f"音频转换完成: 时长 {duration_ms/1000:.0f}s")
     storage.update_meta(
         meeting_id,
         audio_wav="audio_wav.wav",
@@ -115,7 +142,7 @@ async def _run_asr(task_id, meeting_id, cfg) -> None:
 
     ticker = asyncio.create_task(fake_ticker())
     try:
-        raw = await loop.run_in_executor(None, asr.transcribe, wav, cfg.asr)
+        raw = await loop.run_in_executor(None, asr.transcribe, wav, cfg.asr, _log_cb(meeting_id))
     finally:
         stop_fake.set()
         await ticker
@@ -131,7 +158,7 @@ async def _run_polish(task_id, meeting_id, cfg) -> None:
         raise RuntimeError("raw.json missing, cannot polish")
     sentences = data["raw"]["sentences"]
     loop = asyncio.get_event_loop()
-    md = await loop.run_in_executor(None, llm.polish, sentences, cfg.llm)
+    md = await loop.run_in_executor(None, llm.polish, sentences, cfg.llm, _log_cb(meeting_id))
     storage.save_processed(meeting_id, md)
     update(task_id, progress=POLISH_END)
 
@@ -141,7 +168,7 @@ async def _run_summarize(task_id, meeting_id, cfg) -> None:
     data = storage.get_meeting(meeting_id)
     processed = data["processed"] or ""
     loop = asyncio.get_event_loop()
-    md = await loop.run_in_executor(None, llm.summarize, processed, cfg.llm)
+    md = await loop.run_in_executor(None, llm.summarize, processed, cfg.llm, _log_cb(meeting_id))
     storage.save_summary(meeting_id, md)
     update(task_id, progress=SUMMARY_END)
 

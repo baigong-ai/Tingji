@@ -508,6 +508,35 @@ mark.search-hit.current {
   cursor: not-allowed;
 }
 
+/* --- 实时日志 --- */
+.modal-card-wide {
+  width: min(760px, 92vw);
+  max-width: 760px;
+}
+.log-body {
+  background: var(--ink);
+  color: #d4d4d4;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.7;
+  padding: 14px 16px;
+  border-radius: var(--r-sm);
+  max-height: 60vh;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+}
+.log-body .log-warn { color: #f0c674; }
+.log-body .log-err { color: #ff8b8b; }
+.log-status-hint {
+  flex: 1;
+  text-align: left;
+  font-size: 12px;
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+}
+
 /* --- 音频条（底部固定） --- */
 .audio-bar {
   position: fixed;
@@ -572,6 +601,19 @@ mark.search-hit.current {
   color: var(--ink-ghost);
   margin-bottom: 12px;
   font-style: normal;
+}
+/* 整理版空状态的 CTA（asr_done 后引导用户就地开始整理） */
+.empty-cta {
+  text-align: center;
+  padding: 70px 20px;
+}
+.empty-cta .empty-state {
+  padding: 0 0 24px;
+}
+.empty-cta .empty-state::before { display: none; }
+.empty-cta .start-polish-btn {
+  font-size: 15px;
+  padding: 10px 32px;
 }
 
 /* --- 响应式 --- */

@@ -414,6 +414,13 @@ async def get_audio(meeting_id: str):
     return FileResponse(audio_path)
 
 
+@app.get("/api/meetings/{meeting_id}/logs")
+async def meeting_logs(meeting_id: str):
+    if storage.get_meeting(meeting_id) is None:
+        raise HTTPException(404)
+    return tasks.get_logs(meeting_id)
+
+
 @app.get("/api/meetings/{meeting_id}/export")
 async def export(meeting_id: str, format: str = "md"):
     data = storage.get_meeting(meeting_id)
