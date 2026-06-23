@@ -16,7 +16,12 @@
       </a>
       <span id="m-title">会议</span>
     </h1>
-    <button id="settings-btn" class="header-btn">设置</button>
+    <div style="display:flex;align-items:center;">
+      <button id="theme-btn" class="theme-btn" type="button" title="切换视觉风格">
+        <span class="theme-label">主题</span><span id="theme-name">A</span>
+      </button>
+      <button id="settings-btn" class="header-btn">设置</button>
+    </div>
   </header>
   <main class="meeting-main">
     <div class="meeting-meta">
@@ -100,6 +105,7 @@
     <audio id="audio-player" controls preload="metadata"></audio>
   </div>
 
+  <script src="/static/theme.js?v=1"></script>
   <script src="/static/marked.min.js?v=1"></script>
   <script src="/static/meeting.js?v=2"></script>
 </body>

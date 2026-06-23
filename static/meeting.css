@@ -357,7 +357,7 @@ header h1 #m-title {
 
 /* --- 搜索高亮 --- */
 mark.search-hit {
-  background: linear-gradient(transparent 60%, rgba(192, 57, 43, 0.18) 60%);
+  background: linear-gradient(transparent 60%, var(--seal-soft) 60%);
   padding: 0 2px;
   color: var(--ink);
   border-radius: 0;
@@ -389,20 +389,21 @@ mark.search-hit.current {
   bottom: 0;
   left: 0;
   right: 0;
-  background: rgba(26, 24, 20, 0.96);
+  background: var(--ink);
   backdrop-filter: blur(12px);
   padding: 12px 24px;
   display: flex;
   gap: 16px;
   align-items: center;
-  border-top: 1px solid var(--ink);
-  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.2);
+  border-top: 1px solid var(--seal);
+  box-shadow: 0 -4px 24px var(--ink-shadow-deep);
   z-index: 50;
+  color: var(--paper);
 }
 .audio-bar audio {
   width: 100%;
   height: 36px;
-  filter: invert(0.95) sepia(0.05) saturate(0.5) hue-rotate(355deg);
+  filter: invert(1) hue-rotate(180deg);
 }
 
 /* --- 编辑弹层 --- */
