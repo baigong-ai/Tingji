@@ -236,7 +236,7 @@ header h1 .brand-sub::before { content: "·  "; opacity: 0.5; }
   padding: 0 28px;
 }
 
-/* === 步骤（num + title 一行；描述换行） === */
+/* === 步骤（num + title 一行；描述换行到下一行） === */
 .steps {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -247,9 +247,11 @@ header h1 .brand-sub::before { content: "·  "; opacity: 0.5; }
   padding: 16px 0;
 }
 .step {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 10px;
+  row-gap: 6px;
+  align-items: baseline;
   padding: 0 24px;
   position: relative;
   text-align: left;
@@ -262,7 +264,7 @@ header h1 .brand-sub::before { content: "·  "; opacity: 0.5; }
   background: var(--paper-edge);
 }
 .step .num {
-  flex: none;
+  grid-column: 1;
   font-family: var(--font-display);
   font-style: italic;
   font-size: 18px;
@@ -272,7 +274,7 @@ header h1 .brand-sub::before { content: "·  "; opacity: 0.5; }
   font-feature-settings: "lnum" 1;
 }
 .step .step-title {
-  flex: none;
+  grid-column: 2;
   font-size: 14px;
   font-weight: 600;
   color: var(--ink);
@@ -280,10 +282,10 @@ header h1 .brand-sub::before { content: "·  "; opacity: 0.5; }
   white-space: nowrap;
 }
 .step .step-desc {
+  grid-column: 1 / -1;
   font-size: 12px;
   color: var(--ink-faint);
   line-height: 1.55;
-  margin-top: 2px;
 }
 
 /* === 上传卡 === */
