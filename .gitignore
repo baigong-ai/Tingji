@@ -46,3 +46,6 @@ nohup.out
 wsl/
 .claude/settings.local.json
 CLAUDE.md
+
+# Internal-only docs (research, roadmap, planning — not for public repo)
+docs/internal/
