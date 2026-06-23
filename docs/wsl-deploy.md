@@ -54,7 +54,7 @@ source ~/.bashrc
 ## 4. 拉代码 + 下载模型
 
 ```bash
-git clone <repo> funasr
+git clone https://github.com/baigong-ai/tingji.git funasr
 cd funasr
 
 cp config.yaml.example config.yaml
@@ -104,7 +104,7 @@ python -c "import torch; print('cuda:', torch.cuda.is_available(), '|', torch.cu
 启动日志里会看到设备信息，例如：
 
 ```
-loading FunASR models from ./models (hub=ms, device=cuda (NVIDIA GeForce RTX 4070))...
+loading FunASR models from ./models (hub=ms, device=cuda:0)...
 ```
 
 如果看到 `device=cpu`，说明 torch 没装 CUDA 版，回到第 5 步。
@@ -155,14 +155,16 @@ ipconfig | findstr IPv4
 
 ## 8. 性能参考
 
-GPU 推理速度参考（RTX 4070，60 分钟中文音频）：
+GPU 推理速度（实测 RTX 4060 Ti，81 分钟中文音频）：
 
-- ASR（paraformer + VAD + cam++）：约 2-3 分钟
+- ASR（paraformer + VAD + cam++）：约 2 分钟（RTF ≈ 0.025，识别速度约为实时的 40 倍）
 - LLM 整理 + 总结：取决于 LLM 后端
   - 本地 Ollama（Qwen3:8b）：约 5-8 分钟
   - API（GLM/DeepSeek）：1-2 分钟
 
-总耗时约 5-10 分钟，比 CPU（15-20 分钟）快 2-3 倍。
+总耗时约 7-10 分钟。CPU 模式 ASR 慢得多（RTF ≈ 0.25，约为音频时长的 1/4），长音频务必用 GPU。
+
+> 注：`app/asr.py` 必须把 `device` 显式传给 FunASR `AutoModel`，否则即使装了 CUDA 版 torch 也会默认跑 CPU（RTF 飙到 4 以上）。
 
 ## 9. 故障排查
 
