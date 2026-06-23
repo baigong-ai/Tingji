@@ -436,6 +436,21 @@ header h1 .brand:hover { opacity: 0.85; }
   border-color: var(--seal);
   box-shadow: 0 0 0 1px var(--seal);
 }
+/* 播放激活态：比 hover 颜色更深，标识"正在播放到这一段" */
+.compare-raw-line.compare-play-active {
+  background: var(--seal);
+  color: var(--paper);
+}
+.compare-raw-line.compare-play-active .ts,
+.compare-raw-line.compare-play-active .spk {
+  color: var(--paper);
+  opacity: 0.85;
+}
+.compare-proc-block.compare-play-active {
+  background: var(--seal-soft);
+  border-color: var(--seal);
+  box-shadow: 0 0 0 2px var(--seal);
+}
 .compare-empty {
   color: var(--ink-faint);
   font-style: italic;

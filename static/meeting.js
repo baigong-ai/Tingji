@@ -11,6 +11,7 @@ let currentSummary = '';
 let currentStatus = '';
 let activeLine = null;
 let lastIdx = -1;
+let lastCompareScrollIdx = -1;
 
 function fmtTs(ms) {
   const s = Math.floor(ms / 1000);
@@ -146,27 +147,44 @@ function highlightSentence(selector, ms) {
 
 function highlightCompare(ms) {
   const lines = document.querySelectorAll('#compare-raw-body .compare-raw-line');
-  if (!lines.length || !allSentences.length) return;
-  // 二分找当前句
+  const procBlocks = document.querySelectorAll('#compare-processed-body .compare-proc-block');
+  if (!lines.length || !allSentences.length || !procBlocks.length) return;
+
+  // 二分找当前播放到的原句
   let lo = 0, hi = allSentences.length - 1;
   while (lo < hi) {
     const mid = (lo + hi + 1) >> 1;
     if (allSentences[mid].start <= ms) lo = mid; else hi = mid - 1;
   }
-  const targetLine = lines[lo];
+  const currentIdx = lo;
+  const targetLine = lines[currentIdx];
   if (!targetLine) return;
-  // 找对应的 row（按 parent row 索引）
-  const targetRow = targetLine.closest('.compare-row');
-  const targetKey = targetRow ? targetRow.dataset.pair : null;
-  document.querySelectorAll('.compare-row-active-play').forEach(el =>
-    el.classList.remove('compare-row-active-play'));
-  if (targetKey) {
-    document.querySelectorAll(`.compare-row[data-pair="${targetKey}"]`).forEach(el =>
-      el.classList.add('compare-row-active-play'));
+
+  // 高亮当前原句
+  lines.forEach(l => l.classList.remove('compare-play-active'));
+  targetLine.classList.add('compare-play-active');
+
+  // 计算该原句与每个整理段的 Jaccard 相似度，找最匹配段
+  const sentTokens = tokenize(allSentences[currentIdx].text);
+  const procTokens = (window.__tingjiCompareProcTokens || []);
+  let bestIdx = -1, bestScore = 0;
+  procTokens.forEach((t, i) => {
+    const s = jaccard(sentTokens, t);
+    if (s > bestScore) { bestScore = s; bestIdx = i; }
+  });
+  procBlocks.forEach(b => b.classList.remove('compare-play-active'));
+  if (bestIdx >= 0 && bestScore > 0 && procBlocks[bestIdx]) {
+    procBlocks[bestIdx].classList.add('compare-play-active');
   }
-  // 滚到可视区
-  if (targetRow && targetRow.scrollIntoView) {
-    targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+  // 左栏滚动：当前原句到可视区（每 ~5 句滚一次，避免频繁滚动）
+  if (currentIdx !== lastCompareScrollIdx && Math.abs(currentIdx - (lastCompareScrollIdx || 0)) >= 3) {
+    targetLine.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    lastCompareScrollIdx = currentIdx;
+    // 右栏同步滚动到对应整理段
+    if (bestIdx >= 0 && bestScore > 0 && procBlocks[bestIdx]) {
+      procBlocks[bestIdx].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
   }
 }
 
@@ -261,6 +279,10 @@ function renderCompare(md, sentences) {
   } else {
     procHtml = '<p class="empty-state">（暂无整理版）</p>';
   }
+
+  // 暴露给播放同步逻辑使用
+  window.__tingjiCompareProcTokens = procTokens;
+  lastCompareScrollIdx = -1;
 
   return { rawHtml, procHtml, procTokens };
 }
