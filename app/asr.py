@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 from pathlib import Path
 from threading import Lock
 
@@ -97,6 +98,7 @@ def transcribe(wav_path: str, cfg: ASRConfig, on_log=None) -> dict:
         _log("warn", f"无法探测设备: {e}")
     hotword = _load_hotword_str() or cfg.hotword or None
     _log("info", "开始语音识别 ...")
+    t0 = time.time()
     res = model.generate(
         input=wav_path,
         batch_size_s=cfg.batch_size_s,
@@ -105,7 +107,7 @@ def transcribe(wav_path: str, cfg: ASRConfig, on_log=None) -> dict:
         hotword=hotword,
     )
     out = normalize(res)
-    _log("info", f"识别完成: {len(out['sentences'])} 句, {out['spk_count']} 位说话人")
+    _log("info", f"识别完成: {len(out['sentences'])} 句, {out['spk_count']} 位说话人 ({time.time()-t0:.1f}s)")
     return out
 
 

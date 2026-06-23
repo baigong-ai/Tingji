@@ -64,21 +64,24 @@ document.getElementById('export-btn').addEventListener('click', () => {
   location.href = `/api/meetings/${meetingId}/export?format=${fmt}`;
 });
 async function runPolish() {
-  const btn = document.getElementById('retry-btn');
+  const retryBtn = document.getElementById('retry-btn');
+  const ctaBtn = document.querySelector('.start-polish-btn');
   const msg = currentStatus === 'asr_done' ? '开始整理 + 总结？' : '重新调用 LLM 整理 + 总结？';
   if (!confirm(msg)) return;
-  if (btn) btn.disabled = true;
-  const origText = btn ? btn.textContent : '';
+  const setBusy = (text) => {
+    if (retryBtn) { retryBtn.disabled = true; retryBtn.textContent = text; }
+    if (ctaBtn) { ctaBtn.disabled = true; ctaBtn.textContent = text; ctaBtn.classList.add('busy'); }
+  };
+  setBusy('整理中…');
   try {
     const r = await fetch(`/api/meetings/${meetingId}/retry-llm`, { method: 'POST' });
     if (!r.ok) throw new Error('提交失败');
     const { task_id } = await r.json();
-    if (btn) btn.textContent = '整理中…';
     await new Promise((resolve, reject) => {
       const timer = setInterval(async () => {
         try {
           const s = await fetch(`/api/tasks/${task_id}`).then(x => x.json());
-          if (btn) btn.textContent = `整理中… ${s.progress}%`;
+          setBusy(`整理中… ${s.progress}%`);
           if (s.status === 'done') { clearInterval(timer); resolve(); }
           else if (s.status === 'error') { clearInterval(timer); reject(new Error(s.error || '整理失败')); }
         } catch (e) { clearInterval(timer); reject(e); }
@@ -86,8 +89,8 @@ async function runPolish() {
     });
     location.reload();
   } catch (e) {
-    if (btn) { btn.disabled = false; btn.textContent = origText; }
     alert('整理失败: ' + e.message);
+    location.reload();
   }
 }
 document.getElementById('retry-btn').addEventListener('click', runPolish);
@@ -384,7 +387,7 @@ function renderAll() {
   renderRaw(document.getElementById('transcript'), allSentences, true);
   const procEl = document.getElementById('processed-md');
   if (!currentProcessed && currentStatus === 'asr_done') {
-    procEl.innerHTML = `<div class="empty-cta"><p class="empty-state">原文已识别完成，可以整理成会议纪要了</p><button class="primary start-polish-btn">开始整理</button></div>`;
+    procEl.innerHTML = `<div class="empty-cta"><p class="empty-state">原文已识别完成，如果检查没有问题，就可以开始整理会议纪要了</p><button class="primary start-polish-btn">开始整理</button></div>`;
     procEl.querySelector('.start-polish-btn').addEventListener('click', runPolish);
   } else {
     procEl.innerHTML = renderProcessedSegments(currentProcessed, allSentences);
@@ -590,7 +593,11 @@ document.getElementById('search-prev').addEventListener('click', prevHit);
 let logTimer = null;
 const logModal = document.getElementById('log-modal');
 const logBody = document.getElementById('log-body');
-const logStatusHint = document.getElementById('log-status-hint');
+const logStepText = document.getElementById('log-step-text');
+const logPct = document.getElementById('log-pct');
+const logFill = document.getElementById('log-progress-fill');
+const logElapsed = document.getElementById('log-elapsed');
+const logStaleness = document.getElementById('log-staleness');
 document.getElementById('log-btn').addEventListener('click', async () => {
   logModal.classList.remove('hidden');
   await refreshLog();
@@ -602,10 +609,20 @@ function closeLog() {
   logModal.classList.add('hidden');
   if (logTimer) { clearInterval(logTimer); logTimer = null; }
 }
+function fmtElapsed(sec) {
+  if (sec < 60) return sec + 's';
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return `${m}m${s}s`;
+}
 async function refreshLog() {
   try {
     const d = await fetch(`/api/meetings/${meetingId}/logs`).then(r => r.json());
-    logBody.innerHTML = (d.logs || []).map(l => {
+    const logs = d.logs || [];
+    const pct = d.progress || 0;
+    logFill.style.width = pct + '%';
+    logPct.textContent = pct + '%';
+    logStepText.textContent = d.step || statusLabel(d.status);
+    logBody.innerHTML = logs.map(l => {
       const cls = l.level === 'error' ? 'log-err' : (l.level === 'warn' ? 'log-warn' : '');
       let ts = '';
       if (l.ts) {
@@ -616,7 +633,26 @@ async function refreshLog() {
       return `<span class="${cls}">[${ts}] ${escapeHtml(l.msg)}</span>`;
     }).join('\n');
     logBody.scrollTop = logBody.scrollHeight;
-    if (d.step) logStatusHint.textContent = `${d.step} · ${d.progress}%`;
+    const now = Math.floor(Date.now() / 1000);
+    if (logs.length && logs[0].ts) {
+      logElapsed.textContent = '已用 ' + fmtElapsed(Math.round(Math.max(0, now - logs[0].ts)));
+    } else {
+      logElapsed.textContent = '';
+    }
+    const processing = ['pending','converting','asr_running','llm_polishing','llm_summarizing'].includes(d.status);
+    if (logs.length && processing) {
+      const since = Math.round(Math.max(0, now - logs[logs.length - 1].ts));
+      if (since >= 15) {
+        logStaleness.textContent = `⚠ ${since}s 无新日志`;
+        logStaleness.style.color = '#ff8b8b';
+      } else {
+        logStaleness.textContent = `${since}s 前更新`;
+        logStaleness.style.color = '';
+      }
+    } else {
+      logStaleness.textContent = '';
+      logStaleness.style.color = '';
+    }
     if (['done', 'error', 'asr_done'].includes(d.status) && logTimer) {
       clearInterval(logTimer); logTimer = null;
     }

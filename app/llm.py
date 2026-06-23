@@ -1,5 +1,6 @@
 import logging
 import re
+import time
 
 from openai import OpenAI
 
@@ -107,7 +108,7 @@ def format_chunk(chunk: list[dict], mark_failed: bool = False) -> str:
     return "\n".join(lines).strip()
 
 
-def polish(sentences: list[dict], cfg: LLMConfig, on_log=None) -> str:
+def polish(sentences: list[dict], cfg: LLMConfig, on_log=None, on_progress=None) -> str:
     def _log(level, msg):
         if on_log:
             try:
@@ -118,6 +119,7 @@ def polish(sentences: list[dict], cfg: LLMConfig, on_log=None) -> str:
     _log("info", f"整理: 共 {len(chunks)} 段, 模型 {_model_name(cfg)}")
     outputs = []
     for i, chunk in enumerate(chunks):
+        t0 = time.time()
         _log("info", f"整理第 {i+1}/{len(chunks)} 段 ...")
         prompt = POLISH_PROMPT.format(input=format_chunk(chunk))
         success = False
@@ -131,7 +133,14 @@ def polish(sentences: list[dict], cfg: LLMConfig, on_log=None) -> str:
         if not success:
             _log("warn", f"第 {i+1} 段整理失败, 保留原文")
             outputs.append(format_chunk(chunk, mark_failed=True))
-    _log("info", "整理完成")
+        else:
+            _log("info", f"整理第 {i+1}/{len(chunks)} 段完成 ({time.time()-t0:.1f}s)")
+            if on_progress:
+                try:
+                    on_progress((i + 1) / len(chunks))
+                except Exception:
+                    pass
+    _log("info", f"整理完成, 共 {len(chunks)} 段")
     return "\n\n---\n\n".join(outputs)
 
 
@@ -147,15 +156,20 @@ def summarize(processed_md: str, cfg: LLMConfig, on_log=None) -> str:
             except Exception:
                 pass
     if len(processed_md) < 8000:
+        t0 = time.time()
         _log("info", f"生成总结, 模型 {_model_name(cfg)}")
         r = _chat(SUMMARIZE_PROMPT.format(input=processed_md), cfg)
-        _log("info", "总结完成")
+        _log("info", f"总结完成 ({time.time()-t0:.1f}s)")
         return r
     chunks = _split_text(processed_md, 6000)
     _log("info", f"总结: 长文 map-reduce, 切 {len(chunks)} 块")
     partials = []
-    for c in chunks:
+    for i, c in enumerate(chunks):
+        t0 = time.time()
+        _log("info", f"总结第 {i+1}/{len(chunks)} 块 ...")
         partials.append(_chat(SUMMARIZE_PROMPT.format(input=c), cfg))
+        _log("info", f"总结第 {i+1}/{len(chunks)} 块完成 ({time.time()-t0:.1f}s)")
+    _log("info", "合并总结 ...")
     r = _chat(REDUCE_PROMPT.format(input="\n\n".join(partials)), cfg)
     _log("info", "总结完成")
     return r
