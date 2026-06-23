@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <title id="m-page-title">会议 · 听记</title>
-  <link rel="stylesheet" href="/static/style.css?v=6">
-  <link rel="stylesheet" href="/static/meeting.css?v=3">
+  <link rel="stylesheet" href="/static/style.css?v=7">
+  <link rel="stylesheet" href="/static/meeting.css?v=4">
 </head>
 <body>
   <header>
@@ -16,7 +16,10 @@
       </a>
       <span id="m-title">会议</span>
     </h1>
-    <button id="settings-btn" class="header-btn">设置</button>
+    <div class="header-right">
+      <div id="access-info-slot" class="header-access hidden"></div>
+      <button id="settings-btn" class="header-btn">设置</button>
+    </div>
   </header>
   <main class="meeting-main">
     <div class="meeting-meta">
@@ -68,7 +71,7 @@
       <div id="tab-compare" class="panel" role="tabpanel">
         <div class="compare-grid">
           <div class="compare-col" id="compare-raw">
-            <h3>原文 <span class="col-sub">（按时间戳）</span></h3>
+            <h3>原文 <span class="col-sub">（按说话人轮次）</span></h3>
             <div id="compare-raw-body"></div>
           </div>
           <div class="compare-col" id="compare-processed">
@@ -100,7 +103,8 @@
     <audio id="audio-player" controls preload="metadata"></audio>
   </div>
 
+  <script src="/static/access.js?v=1"></script>
   <script src="/static/marked.min.js?v=1"></script>
-  <script src="/static/meeting.js?v=3"></script>
+  <script src="/static/meeting.js?v=4"></script>
 </body>
 </html>

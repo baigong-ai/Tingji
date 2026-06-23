@@ -134,21 +134,31 @@ header::after {
 
 header h1 {
   margin: 0;
-  font-family: var(--font-display);
   font-size: 22px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   display: flex;
   align-items: baseline;
-  gap: 12px;
+  gap: 14px;
+}
+/* 品牌字：跨平台"雅致"字体栈，优先 Mac 经典 Didot/Bodoni 系列 */
+header h1 .brand {
+  /* Didot 优先（Mac 经典衬线、优雅）；Win 落 Bodoni MT；其它 Optima/Hoefler Text */
+  font-family: "Didot", "Bodoni 72", "Bodoni MT", "Hoefler Text", "Goudy Old Style", "Cambria", Georgia, "Times New Roman", serif;
+  font-weight: 500;
+  font-style: normal;
+  letter-spacing: 0.12em;
+  /* 标题"听记"两字加点 scale 让它有徽章感 */
+  font-size: 26px;
+  line-height: 1;
 }
 header h1 .brand-sub {
-  font-family: var(--font-serif);
-  font-size: 13px;
+  font-family: var(--font-body);
+  font-size: 12px;
   font-weight: 400;
-  font-style: italic;
+  font-style: normal;
   opacity: 0.55;
-  letter-spacing: 0;
+  letter-spacing: 0.04em;
 }
 header h1 .brand-sub::before { content: "·  "; opacity: 0.5; }
 
@@ -177,7 +187,7 @@ header h1 .brand-sub::before { content: "·  "; opacity: 0.5; }
   gap: 14px;
 }
 
-/* header 内的访问地址槽 */
+/* header 内的访问地址：标签 + 框（框内含 URL + 复制图标） */
 .header-access {
   display: flex;
   align-items: center;
@@ -185,48 +195,51 @@ header h1 .brand-sub::before { content: "·  "; opacity: 0.5; }
   font-size: 12px;
   font-family: var(--font-mono);
 }
-.header-access .url-chip,
-.header-access .url-select {
+.header-access .access-label {
+  color: rgba(250, 248, 243, 0.55);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.header-access .access-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   background: rgba(250, 248, 243, 0.08);
   color: var(--paper);
   border: 1px solid var(--header-btn-border);
-  padding: 4px 10px;
+  padding: 5px 10px;
   border-radius: var(--r-sm);
   font-family: var(--font-mono);
   font-size: 12px;
   letter-spacing: 0.02em;
-  user-select: all;
-  max-width: 280px;
+  cursor: pointer;
+  transition: all var(--tx);
+  max-width: 300px;
+}
+.header-access .access-chip:hover {
+  background: var(--seal);
+  border-color: var(--seal);
+}
+.header-access .access-chip.copied {
+  background: var(--moss);
+  border-color: var(--moss);
+}
+.header-access .access-url {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  user-select: all;
 }
-.header-access .url-select {
-  appearance: none;
-  background-image: linear-gradient(45deg, transparent 50%, var(--paper) 50%),
-                    linear-gradient(135deg, var(--paper) 50%, transparent 50%);
-  background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
-  background-size: 5px 5px, 5px 5px;
-  background-repeat: no-repeat;
-  padding-right: 28px;
-  cursor: pointer;
+.header-access .copy-icon {
+  flex: none;
+  opacity: 0.7;
+  transition: opacity var(--tx);
 }
-.header-access .copy {
-  background: transparent;
-  color: var(--paper);
-  border: 1px solid var(--header-btn-border);
-  font-family: var(--font-serif);
-  font-size: 11px;
-  padding: 4px 10px;
-  border-radius: var(--r-sm);
-  cursor: pointer;
-  letter-spacing: 0.06em;
-  transition: all var(--tx);
-}
-.header-access .copy:hover {
-  background: var(--seal);
-  color: var(--paper);
-  border-color: var(--seal);
+.header-access .access-chip:hover .copy-icon,
+.header-access .access-chip.copied .copy-icon {
+  opacity: 1;
 }
 
 /* === 容器 === */
@@ -507,18 +520,19 @@ button.mini:hover:not(:disabled) {
   margin: 0 -16px;
   padding-left: 16px;
   padding-right: 16px;
+  cursor: pointer;
 }
 .history-list li:hover { background: var(--paper-deep); }
+.history-list li:hover .title { color: var(--seal); }
 .history-list li:last-child { border-bottom: none; }
-.history-list a {
+.history-list .title {
   color: var(--ink);
-  text-decoration: none;
   font-weight: 600;
   font-size: 16px;
   letter-spacing: 0.01em;
   font-family: var(--font-display);
+  transition: color var(--tx);
 }
-.history-list a:hover { color: var(--seal); }
 .history-list .meta {
   font-size: 12px;
   color: var(--ink-faint);

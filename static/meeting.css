@@ -355,6 +355,43 @@ header h1 #m-title {
   line-height: 1.85;
   border: 1px solid var(--paper-edge);
 }
+/* 对照行对齐：每个 turn 占一对行（左边原句 + 右边整理版） */
+.compare-row {
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--paper-edge);
+  transition: background var(--tx);
+  scroll-margin-top: 80px;
+}
+.compare-row:last-child { border-bottom: none; }
+.compare-row.compare-row-active,
+.compare-row.compare-row-active-play {
+  background: var(--paper-deep);
+  border-radius: var(--r-sm);
+}
+.compare-raw-line {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--ink-soft);
+  padding: 2px 0;
+}
+.compare-raw-line .ts {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+  margin-right: 8px;
+}
+.compare-raw-line .spk {
+  font-weight: 600;
+  font-size: 12px;
+  margin-right: 6px;
+}
+.compare-empty {
+  color: var(--ink-faint);
+  font-style: italic;
+  font-size: 12px;
+  text-align: center;
+  padding: 18px 0;
+}
 .compare-col h3 {
   margin: 0 0 16px;
   font-size: 13px;

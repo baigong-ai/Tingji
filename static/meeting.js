@@ -123,7 +123,7 @@ audioPlayer.addEventListener('timeupdate', () => {
   if (document.getElementById('tab-raw').classList.contains('active')) {
     highlightSentence('#transcript .transcript-line', ms);
   } else if (document.getElementById('tab-compare').classList.contains('active')) {
-    highlightSentence('#compare-raw-body .transcript-line', ms);
+    highlightCompare(ms);
   } else if (document.getElementById('tab-processed').classList.contains('active')) {
     highlightProcSegment(ms);
   }
@@ -142,6 +142,32 @@ function highlightSentence(selector, ms) {
   line.classList.add('active');
   activeLine = line;
   line.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function highlightCompare(ms) {
+  const lines = document.querySelectorAll('#compare-raw-body .compare-raw-line');
+  if (!lines.length || !allSentences.length) return;
+  // 二分找当前句
+  let lo = 0, hi = allSentences.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (allSentences[mid].start <= ms) lo = mid; else hi = mid - 1;
+  }
+  const targetLine = lines[lo];
+  if (!targetLine) return;
+  // 找对应的 row（按 parent row 索引）
+  const targetRow = targetLine.closest('.compare-row');
+  const targetKey = targetRow ? targetRow.dataset.pair : null;
+  document.querySelectorAll('.compare-row-active-play').forEach(el =>
+    el.classList.remove('compare-row-active-play'));
+  if (targetKey) {
+    document.querySelectorAll(`.compare-row[data-pair="${targetKey}"]`).forEach(el =>
+      el.classList.add('compare-row-active-play'));
+  }
+  // 滚到可视区
+  if (targetRow && targetRow.scrollIntoView) {
+    targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 }
 
 function highlightProcSegment(ms) {
@@ -183,34 +209,114 @@ function renderProcessedSegments(md, sentences) {
     if (!block.trim()) continue;
     const m = block.match(/^说话人\s*(\d+)/);
     let start = '';
+    let pair = '';
     if (m) {
       const spk = m[1];
       const idx = spkPtr[spk] || 0;
       let count = 0;
+      let tStart = '', tEnd = '';
       for (const t of turns) {
         if (t.spk === spk) {
-          if (count === idx) { start = t.start; break; }
+          if (count === idx) { tStart = t.start; start = t.start; break; }
           count++;
         }
       }
+      pair = `${spk}-${idx}`;
       spkPtr[spk] = idx + 1;
       block = '## ' + block;
     }
     block = applySpeakerNamesToMd(block);
-    html += `<div class="proc-seg" data-start="${start}">${marked.parse(block)}</div>`;
+    html += `<div class="proc-seg" data-start="${start}" data-pair="${pair}">${marked.parse(block)}</div>`;
   }
   return html;
+}
+
+// 对照视图：按"说话人轮次"做行对齐的双栏，hover 一边高亮两边
+function renderCompare(md, sentences) {
+  if (!sentences || !sentences.length) {
+    return '<p class="empty-state">（暂无原句）</p>';
+  }
+  // 1. 按说话人切原句：每个 turn 是连续的同 spk 段落
+  const turns = [];
+  let cur = null;
+  for (const s of sentences) {
+    if (!cur || String(cur.spk) !== String(s.spk)) {
+      cur = { spk: String(s.spk), sentences: [] };
+      turns.push(cur);
+    }
+    cur.sentences.push(s);
+  }
+
+  // 2. 解析整理版的 ## 段落，按顺序
+  let procBlocks = [];
+  if (md) {
+    const parts = md.split(/^## /m);
+    for (let i = 0; i < parts.length; i++) {
+      let block = parts[i];
+      if (!block.trim()) continue;
+      const m = block.match(/^说话人\s*(\d+)/);
+      if (m) {
+        block = '## ' + block;
+        procBlocks.push({ spk: m[1], html: marked.parse(applySpeakerNamesToMd(block)) });
+      }
+    }
+  }
+
+  // 3. 按 turn 数对齐双栏
+  const n = Math.max(turns.length, procBlocks.length);
+  let rawHtml = '', procHtml = '';
+  for (let i = 0; i < n; i++) {
+    const t = turns[i];
+    const p = procBlocks[i];
+    const pairKey = `row-${i}`;
+    if (t) {
+      const rawLines = t.sentences.map(s =>
+        `<div class="compare-raw-line" data-start="${s.start}" data-end="${s.end}">` +
+        `<span class="ts">[${fmtTs(s.start)}]</span>` +
+        `<span class="spk ${spkClass(t.spk)}">${escapeHtml(spkLabel(t.spk))}</span>` +
+        `<span>${escapeHtml(s.text)}</span></div>`
+      ).join('');
+      rawHtml += `<div class="compare-row" data-pair="${pairKey}">${rawLines}</div>`;
+    } else {
+      rawHtml += `<div class="compare-row compare-empty" data-pair="${pairKey}"><span class="hint">（无对应原句）</span></div>`;
+    }
+    if (p) {
+      procHtml += `<div class="compare-row compare-proc" data-pair="${pairKey}">${p.html}</div>`;
+    } else {
+      procHtml += `<div class="compare-row compare-empty" data-pair="${pairKey}"><span class="hint">（等待整理）</span></div>`;
+    }
+  }
+  return { rawHtml, procHtml };
 }
 
 function renderAll() {
   renderSpeakersBar(allSpkCount);
   renderRaw(document.getElementById('transcript'), allSentences, true);
-  renderRaw(document.getElementById('compare-raw-body'), allSentences, false);
   document.getElementById('processed-md').innerHTML = renderProcessedSegments(currentProcessed, allSentences);
   document.getElementById('summary-md').innerHTML = renderMd(currentSummary);
-  document.getElementById('compare-processed-body').innerHTML = renderProcessedSegments(currentProcessed, allSentences);
+  // 对照视图：按说话人轮次行对齐
+  const cmp = renderCompare(currentProcessed, allSentences);
+  document.getElementById('compare-raw-body').innerHTML = cmp.rawHtml;
+  document.getElementById('compare-processed-body').innerHTML = cmp.procHtml;
+  bindCompareHover();
   activeLine = null;
   lastIdx = -1;
+}
+
+// 对照双栏 hover 联动：hover 一边高亮两边对应行
+function bindCompareHover() {
+  const rows = document.querySelectorAll('.compare-row[data-pair]');
+  rows.forEach(row => {
+    row.addEventListener('mouseenter', () => {
+      const key = row.dataset.pair;
+      rows.forEach(r => {
+        if (r.dataset.pair === key) r.classList.add('compare-row-active');
+      });
+    });
+    row.addEventListener('mouseleave', () => {
+      rows.forEach(r => r.classList.remove('compare-row-active'));
+    });
+  });
 }
 
 function renderSpeakersBar(count) {
@@ -401,17 +507,7 @@ document.getElementById('search-next').addEventListener('click', nextHit);
 document.getElementById('search-prev').addEventListener('click', prevHit);
 
 function bindScrollSync() {
-  const a = document.getElementById('compare-raw');
-  const b = document.getElementById('compare-processed');
-  let syncing = false;
-  a.addEventListener('scroll', () => {
-    if (syncing) return; syncing = true; b.scrollTop = a.scrollTop;
-    setTimeout(() => syncing = false, 50);
-  });
-  b.addEventListener('scroll', () => {
-    if (syncing) return; syncing = true; a.scrollTop = b.scrollTop;
-    setTimeout(() => syncing = false, 50);
-  });
+  // 旧的两栏独立滚动同步已废弃：对照改为按行对齐后无需联动
 }
 
 function statusLabel(s) {
