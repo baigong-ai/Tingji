@@ -39,6 +39,10 @@ dns_hosts.txt
 *.swp
 .DS_Store
 
-# Runtime logs
+# Runtime logs & local config
 nohup.out
+*.log
+*.bak
 wsl/
+.claude/settings.local.json
+CLAUDE.md
