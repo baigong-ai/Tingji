@@ -8,6 +8,7 @@ let allSentences = [];
 let allSpkCount = 0;
 let currentProcessed = '';
 let currentSummary = '';
+let currentSummaryJson = null;
 let currentStatus = '';
 let meetingContext = '';
 let activeLine = null;
@@ -44,6 +45,23 @@ function renderMd(md) {
   md = applySpeakerNamesToMd(md);
   if (!md) return '<p class="empty-state">（暂无内容）</p>';
   return marked.parse(md);
+}
+function applySpkToText(s) {
+  return String(s).replace(/说话人\s*(\d+)/g, (m, n) => speakerNames[n] ? speakerNames[n] : m);
+}
+function renderSummaryJson(d) {
+  if (!d) return '<p class="empty-state">（暂无总结）</p>';
+  const section = (title, items) => {
+    if (!items || !items.length) return '';
+    const lis = items.map(x => `<li>${escapeHtml(applySpkToText(x))}</li>`).join('');
+    return `<div class="sum-section"><h4>${title}</h4><ul>${lis}</ul></div>`;
+  };
+  let html = '';
+  if (d.summary) html += `<p class="sum-overview">${escapeHtml(applySpkToText(d.summary))}</p>`;
+  html += section('决议', d.decisions);
+  html += section('待办', d.action_items);
+  html += section('待讨论', d.open_questions);
+  return html || '<p class="empty-state">（暂无总结）</p>';
 }
 
 audioPlayer.src = `/api/meetings/${meetingId}/audio`;
@@ -362,7 +380,7 @@ function renderAll() {
   } else {
     procEl.innerHTML = renderProcessedSegments(currentProcessed, allSentences);
   }
-  document.getElementById('summary-md').innerHTML = renderMd(currentSummary);
+  document.getElementById('summary-md').innerHTML = currentSummaryJson ? renderSummaryJson(currentSummaryJson) : renderMd(currentSummary);
   // 对照视图：左原文逐句，右整理段独立；hover 跨栏关键词定位
   const cmp = renderCompare(currentProcessed, allSentences);
   document.getElementById('compare-raw-body').innerHTML = cmp.rawHtml;
@@ -691,6 +709,7 @@ async function load() {
     allSpkCount = meta.spk_count || 0;
     currentProcessed = data.processed || '';
     currentSummary = data.summary || '';
+    currentSummaryJson = data.summary_json || null;
     document.getElementById('m-title').textContent = meta.title;
     document.getElementById('m-page-title').textContent = `${meta.title} · 听记`;
     const durationStr = meta.duration_ms

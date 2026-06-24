@@ -96,6 +96,7 @@ def get_meeting(meeting_id: str) -> dict | None:
         "raw": _read_json(mdir / "raw.json"),
         "processed": _read_text(mdir / "processed.md"),
         "summary": _read_text(mdir / "summary.md"),
+        "summary_json": _read_json(mdir / "summary.json"),
     }
 
 
@@ -111,6 +112,15 @@ def save_processed(meeting_id: str, md: str) -> None:
 
 def save_summary(meeting_id: str, md: str) -> None:
     (DATA_DIR / meeting_id / "summary.md").write_text(md, encoding="utf-8")
+
+
+def save_summary_json(meeting_id: str, data) -> None:
+    f = DATA_DIR / meeting_id / "summary.json"
+    if data is None:
+        if f.exists():
+            f.unlink()
+        return
+    f.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def update_meta(meeting_id: str, **fields) -> None:

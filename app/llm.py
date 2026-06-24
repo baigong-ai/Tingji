@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 import time
@@ -23,22 +24,17 @@ POLISH_PROMPT = """你是一个会议录音整理助手。下面是一段会议�
 {input}
 """
 
-SUMMARIZE_PROMPT = """下面是一份整理后的会议记录。请输出会议纪要，格式：
+SUMMARIZE_PROMPT = """下面是一份整理后的会议记录。请输出**严格的 JSON**（不要 markdown 代码块、不要任何额外文字），结构必须是：
 
-## 核心议题
-（列出讨论的主要话题，每条一行）
+{{"summary": "会议核心内容概述，1-3 句", "decisions": ["已确定的事项，每条一句"], "action_items": ["待办事项，尽量括注负责人"], "open_questions": ["未解决或待讨论的问题"]}}
 
-## 决议
-（已确定的事项，每条一行）
-
-## 待办
-（用 `- [ ]` 列表，每项后括注负责人）
+四个字段都要有，没内容的给空数组 []。只输出 JSON 本身。
 
 会议记录：
 {input}
 """
 
-REDUCE_PROMPT = """下面是同一会议的多个分段摘要，请合并为一份统一的会议纪要（核心议题 / 决议 / 待办）：
+REDUCE_PROMPT = """下面是同一会议多个分段各自输出的会议纪要 JSON。请合并为一份统一的 JSON（同样结构：summary/decisions/action_items/open_questions），去重，summary 给出综合概述。只输出 JSON 本身。
 
 {input}
 """
@@ -59,13 +55,15 @@ def _clean_response(text: str) -> str:
     return re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL).strip()
 
 
-def _chat(prompt: str, cfg: LLMConfig) -> str:
+def _chat(prompt: str, cfg: LLMConfig, json_mode: bool = False) -> str:
     client = _client(cfg)
     kwargs = {
         "model": _model_name(cfg),
         "messages": [{"role": "user", "content": prompt.rstrip() + "\n\n/no_think"}],
         "temperature": cfg.temperature,
     }
+    if json_mode and cfg.mode == "api":
+        kwargs["response_format"] = {"type": "json_object"}
     if cfg.mode == "ollama":
         # num_ctx: ollama 默认 4096，长会议整理/总结会超限报 400，放宽到 16k
         # enable_thinking=False + /no_think: 关 Qwen3 系列的 reasoning（否则每段慢且吃内存）
@@ -164,7 +162,52 @@ def _split_text(text: str, size: int) -> list[str]:
     return [text[i:i + size] for i in range(0, len(text), size)]
 
 
-def summarize(processed_md: str, cfg: LLMConfig, on_log=None, meeting_context: str = "") -> str:
+def _parse_summary_json(text: str) -> dict | None:
+    s = (text or "").strip()
+    if s.startswith("```"):
+        s = re.sub(r"^```[a-zA-Z]*", "", s).strip()
+        if s.endswith("```"):
+            s = s[:-3].strip()
+    try:
+        d = json.loads(s)
+    except Exception:
+        m = re.search(r"\{.*\}", s, re.DOTALL)
+        if not m:
+            return None
+        try:
+            d = json.loads(m.group(0))
+        except Exception:
+            return None
+
+    def _items(v):
+        if isinstance(v, list):
+            return [str(x).strip() for x in v if str(x).strip()]
+        if isinstance(v, str) and v.strip():
+            return [v.strip()]
+        return []
+
+    return {
+        "summary": str(d.get("summary", "")).strip(),
+        "decisions": _items(d.get("decisions")),
+        "action_items": _items(d.get("action_items")),
+        "open_questions": _items(d.get("open_questions")),
+    }
+
+
+def summary_to_md(d: dict) -> str:
+    parts = []
+    if d.get("summary"):
+        parts.append(f"## 概述\n\n{d['summary']}")
+    if d.get("decisions"):
+        parts.append("## 决议\n\n" + "\n".join(f"- {x}" for x in d["decisions"]))
+    if d.get("action_items"):
+        parts.append("## 待办\n\n" + "\n".join(f"- [ ] {x}" for x in d["action_items"]))
+    if d.get("open_questions"):
+        parts.append("## 待讨论\n\n" + "\n".join(f"- {x}" for x in d["open_questions"]))
+    return "\n\n".join(parts)
+
+
+def summarize(processed_md: str, cfg: LLMConfig, on_log=None, meeting_context: str = "") -> dict | str:
     def _log(level, msg):
         if on_log:
             try:
@@ -175,18 +218,18 @@ def summarize(processed_md: str, cfg: LLMConfig, on_log=None, meeting_context: s
     if len(processed_md) < 8000:
         t0 = time.time()
         _log("info", f"生成总结, 模型 {_model_name(cfg)}")
-        r = _chat(ctx + SUMMARIZE_PROMPT.format(input=processed_md), cfg)
+        raw = _chat(ctx + SUMMARIZE_PROMPT.format(input=processed_md), cfg, json_mode=True)
         _log("info", f"总结完成 ({time.time()-t0:.1f}s)")
-        return r
+        return _parse_summary_json(raw) or raw
     chunks = _split_text(processed_md, 6000)
     _log("info", f"总结: 长文 map-reduce, 切 {len(chunks)} 块")
     partials = []
     for i, c in enumerate(chunks):
         t0 = time.time()
         _log("info", f"总结第 {i+1}/{len(chunks)} 块 ...")
-        partials.append(_chat(ctx + SUMMARIZE_PROMPT.format(input=c), cfg))
+        partials.append(_chat(ctx + SUMMARIZE_PROMPT.format(input=c), cfg, json_mode=True))
         _log("info", f"总结第 {i+1}/{len(chunks)} 块完成 ({time.time()-t0:.1f}s)")
     _log("info", "合并总结 ...")
-    r = _chat(ctx + REDUCE_PROMPT.format(input="\n\n".join(partials)), cfg)
+    raw = _chat(ctx + REDUCE_PROMPT.format(input="\n\n".join(partials)), cfg, json_mode=True)
     _log("info", "总结完成")
-    return r
+    return _parse_summary_json(raw) or raw

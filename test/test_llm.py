@@ -62,18 +62,40 @@ def test_polish_fallback_on_failure(cfg_api):
     assert "hi" in md
 
 
-def test_summarize_short(cfg_api):
-    with mock.patch("app.llm._chat", return_value="## 核心议题\n...") as m:
+def test_summarize_short_returns_structured(cfg_api):
+    raw = '{"summary":"概述","decisions":["d1"],"action_items":["a1"],"open_questions":["q1"]}'
+    with mock.patch("app.llm._chat", return_value=raw) as m:
         out = llm.summarize("short text", cfg_api)
     assert m.call_count == 1
-    assert "核心议题" in out
+    assert m.call_args.kwargs.get("json_mode") is True
+    assert isinstance(out, dict)
+    assert out["summary"] == "概述"
+    assert out["decisions"] == ["d1"]
+    assert out["action_items"] == ["a1"]
 
 
-def test_summarize_long_map_reduce(cfg_api):
+def test_summarize_fallback_on_bad_json(cfg_api):
+    with mock.patch("app.llm._chat", return_value="这不是 JSON，就是一段普通总结"):
+        out = llm.summarize("short text", cfg_api)
+    assert isinstance(out, str)
+    assert "普通总结" in out
+
+
+def test_summarize_long_map_reduce_merges(cfg_api):
     long_md = "x" * 9000
-    with mock.patch("app.llm._chat", return_value="partial") as m:
-        llm.summarize(long_md, cfg_api)
+    raw = '{"summary":"s","decisions":["d"],"action_items":[],"open_questions":[]}'
+    with mock.patch("app.llm._chat", return_value=raw) as m:
+        out = llm.summarize(long_md, cfg_api)
     assert m.call_count >= 2
+    assert isinstance(out, dict)
+
+
+def test_summary_to_md(cfg_api):
+    md = llm.summary_to_md({"summary": "s", "decisions": ["d"], "action_items": ["a"], "open_questions": []})
+    assert "## 概述" in md and "s" in md
+    assert "## 决议" in md and "- d" in md
+    assert "## 待办" in md and "- [ ] a" in md
+    assert "待讨论" not in md
 
 
 def test_polish_injects_meeting_context(cfg_api):

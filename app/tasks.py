@@ -172,8 +172,13 @@ async def _run_summarize(task_id, meeting_id, cfg) -> None:
     processed = data["processed"] or ""
     ctx = (data.get("meta") or {}).get("meeting_context") or ""
     loop = asyncio.get_event_loop()
-    md = await loop.run_in_executor(None, llm.summarize, processed, cfg.llm, _log_cb(meeting_id), ctx)
-    storage.save_summary(meeting_id, md)
+    result = await loop.run_in_executor(None, llm.summarize, processed, cfg.llm, _log_cb(meeting_id), ctx)
+    if isinstance(result, dict):
+        storage.save_summary_json(meeting_id, result)
+        storage.save_summary(meeting_id, llm.summary_to_md(result))
+    else:
+        storage.save_summary(meeting_id, result)
+        storage.save_summary_json(meeting_id, None)
     update(task_id, progress=SUMMARY_END)
 
 

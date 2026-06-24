@@ -210,6 +210,13 @@ header h1 .brand:hover { opacity: 0.85; }
 .tl-seg:focus-visible { outline: 2px solid var(--seal); outline-offset: -2px; }
 .tl-seg.speaking { opacity: 1; box-shadow: inset 0 0 0 2px rgba(255,255,255,0.75); }
 
+/* --- 结构化纪要（4 段） --- */
+.sum-overview { font-size: 14px; line-height: 1.7; color: var(--ink); margin: 0 0 12px; }
+.sum-section { margin: 10px 0; }
+.sum-section h4 { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); margin: 0 0 6px; font-weight: 600; }
+.sum-section ul { margin: 0; padding-left: 20px; }
+.sum-section li { font-size: 14px; line-height: 1.7; color: var(--ink); margin: 2px 0; }
+
 /* --- sticky 工具栏（在 header 下方） --- */
 .meeting-sticky {
   position: sticky;
