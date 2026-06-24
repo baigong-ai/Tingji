@@ -127,22 +127,6 @@ llm:
 - CPU 模式：约音频时长 × 0.25（60 分钟音频 ≈ 15 分钟）
 - 支持 60–90 分钟长音频（VAD 自动切片 + 分批推理）
 
-## 故障排查
-
-**首次启动卡在「语音识别」/ 模型下载超时**——多为 modelscope.cn 的 DNS 或网络问题：
-
-```bash
-curl -sS -o /dev/null -w "%{http_code}\n" https://www.modelscope.cn/   # 1. 测直连
-cp dns_hosts.txt.example dns_hosts.txt   # 2. curl 通但 Python 不通时，填可用 IP 绕过 DNS
-export HTTPS_PROXY=http://your-proxy:port && ./run.sh   # 3. 走代理
-```
-
-**LLM 调用失败 / 整理很慢**——api 模式检查 `LLM_API_KEY` 与 `base_url`；ollama 模式确认 `ollama serve` 已启动、模型在 `ollama list` 中。整理失败的段落会标记 `[整理失败]`，可在详情页点「重新整理」。
-
-**ollama 整理慢 / 总结报 context 超限**——优先用 gguf 量化模型（`Qwen3:8b`、`qwen2.5` 等）；`*-mlx` 模型在多数机器上后端极慢、还可能吃满内存，不推荐。代码已自动放大上下文（`num_ctx=16384`）并关闭 Qwen3 的 thinking，长会议也能稳定跑完。
-
-**推理模型（Qwen3 / DeepSeek-R1）输出含思考过程**——代码已自动剥离 `<think>...</think>`，换用其他推理模型请保留该清理。
-
 ## 已知限制
 
 - 说话人分离基于音色聚类，设备/位置变化可能导致 ID 拆分或合并

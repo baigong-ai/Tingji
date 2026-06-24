@@ -127,22 +127,6 @@ llm:
 - CPU mode: roughly audio-length × 0.25 (60-min audio ≈ 15 min)
 - Supports 60–90 min long audio (auto VAD chunking + batched inference)
 
-## Troubleshooting
-
-**Stuck on "recognizing" / model download timeout on first launch** — usually a DNS/network issue reaching modelscope.cn:
-
-```bash
-curl -sS -o /dev/null -w "%{http_code}\n" https://www.modelscope.cn/   # 1. test direct access
-cp dns_hosts.txt.example dns_hosts.txt   # 2. if curl works but Python doesn't, put a working IP here to bypass DNS
-export HTTPS_PROXY=http://your-proxy:port && ./run.sh   # 3. use a proxy
-```
-
-**LLM call failed / polish very slow** — for api mode check `LLM_API_KEY` and `base_url`; for ollama make sure `ollama serve` is running and the model is in `ollama list`. Failed chunks are marked `[polish failed]` — click "Re-polish" on the detail page.
-
-**ollama polish slow / summarize hits context limit** — prefer gguf-quantized models (`Qwen3:8b`, `qwen2.5`, etc.); `*-mlx` models are extremely slow on most machines and may exhaust memory, not recommended. The code already enlarges the context (`num_ctx=16384`) and disables Qwen3 thinking, so long meetings run reliably.
-
-**Reasoning models (Qwen3 / DeepSeek-R1) emit thinking traces** — the code already strips `<think>...</think>`; keep that cleanup if you swap in other reasoning models.
-
 ## Known limitations
 
 - Speaker diarization is voice-clustering based; device/position changes can split or merge speaker IDs
