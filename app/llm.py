@@ -63,12 +63,16 @@ def _chat(prompt: str, cfg: LLMConfig) -> str:
     client = _client(cfg)
     kwargs = {
         "model": _model_name(cfg),
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": [{"role": "user", "content": prompt.rstrip() + "\n\n/no_think"}],
         "temperature": cfg.temperature,
     }
     if cfg.mode == "ollama":
-        # ollama 默认 num_ctx=4096，长会议整理/总结会超限报 400；放宽到 16k
-        kwargs["extra_body"] = {"options": {"num_ctx": 16384}}
+        # num_ctx: ollama 默认 4096，长会议整理/总结会超限报 400，放宽到 16k
+        # enable_thinking=False + /no_think: 关 Qwen3 系列的 reasoning（否则每段慢且吃内存）
+        kwargs["extra_body"] = {
+            "options": {"num_ctx": 16384},
+            "chat_template_kwargs": {"enable_thinking": False},
+        }
     resp = client.chat.completions.create(**kwargs)
     return _clean_response(resp.choices[0].message.content or "")
 
