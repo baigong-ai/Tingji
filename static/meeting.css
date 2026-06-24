@@ -362,7 +362,7 @@ header h1 .brand:hover { opacity: 0.85; }
   background: var(--paper);
   padding: 32px 40px;
   border-radius: var(--r-md);
-  line-height: 1.9;
+  line-height: 1.75;
   font-size: 16px;
   font-family: var(--font-serif);
   color: var(--ink);
@@ -370,7 +370,7 @@ header h1 .brand:hover { opacity: 0.85; }
   margin: 0 auto;
 }
 .rendered-md h1, .rendered-md h2, .rendered-md h3, .rendered-md h4 {
-  margin-top: 28px;
+  margin-top: 18px;
   color: var(--ink);
   font-family: var(--font-display);
   font-weight: 600;
@@ -387,8 +387,9 @@ header h1 .brand:hover { opacity: 0.85; }
   color: var(--seal);
 }
 .rendered-md h3 { font-size: 16px; }
-.rendered-md p { margin: 12px 0; }
-.rendered-md ul, .rendered-md ol { margin: 10px 0; padding-left: 26px; }
+.rendered-md p { margin: 7px 0; }
+.rendered-md ul, .rendered-md ol { margin: 8px 0; padding-left: 26px; }
+.rendered-md hr { border: none; border-top: 1px solid var(--paper-edge); margin: 14px 0; }
 .rendered-md li { margin: 4px 0; }
 .rendered-md strong { font-weight: 600; color: var(--ink); }
 .rendered-md code {
