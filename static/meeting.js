@@ -9,6 +9,8 @@ let allSpkCount = 0;
 let currentProcessed = '';
 let currentSummary = '';
 let currentSummaryJson = null;
+let templates = [];
+let meetingTemplate = '';
 let currentStatus = '';
 let meetingContext = '';
 let activeLine = null;
@@ -82,11 +84,11 @@ document.getElementById('export-btn').addEventListener('click', () => {
   const fmt = document.getElementById('export-format').value;
   location.href = `/api/meetings/${meetingId}/export?format=${fmt}`;
 });
-async function saveMeetingContext(ctx) {
+async function savePrePolish(payload) {
   try {
     await fetch(`/api/meetings/${meetingId}/context`, {
       method: 'PUT', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({meeting_context: ctx})
+      body: JSON.stringify(payload)
     });
   } catch (e) { /* 静默，整理时再存一次 */ }
 }
@@ -101,8 +103,12 @@ async function runPolish() {
   };
   setBusy('整理中…');
   try {
-    const ctxEl = document.querySelector('.meeting-context');
-    if (ctxEl) await saveMeetingContext(ctxEl.value);
+    const prePayload = {};
+    const ctxEl0 = document.querySelector('.meeting-context');
+    if (ctxEl0) prePayload.meeting_context = ctxEl0.value;
+    const selEl0 = document.querySelector('.template-select');
+    if (selEl0) prePayload.template = selEl0.value;
+    if (Object.keys(prePayload).length) await savePrePolish(prePayload);
     const r = await fetch(`/api/meetings/${meetingId}/retry-llm`, { method: 'POST' });
     if (!r.ok) throw new Error('提交失败');
     const { task_id } = await r.json();
@@ -370,11 +376,17 @@ function renderAll() {
   renderRaw(document.getElementById('transcript'), allSentences, true);
   const procEl = document.getElementById('processed-md');
   if (!currentProcessed && currentStatus === 'asr_done') {
-    procEl.innerHTML = `<div class="empty-cta"><p class="empty-state">原文已识别完成，如果检查没有问题，就可以开始整理会议纪要了</p><details class="ctx-panel"><summary>会议背景 / 关键术语（可选，填了整理更准）</summary><textarea class="meeting-context" name="meeting-context" aria-label="会议背景与关键术语" placeholder="例如：X 项目周会；术语：K8s、灰度发布；参会：张三、李四" style="width:100%;max-width:560px;min-height:72px;box-sizing:border-box;margin-top:8px"></textarea></details><button class="primary start-polish-btn">开始整理</button></div>`;
+    procEl.innerHTML = `<div class="empty-cta"><p class="empty-state">原文已识别完成，如果检查没有问题，就可以开始整理会议纪要了</p><div class="polish-setup"><label class="template-label">整理模板 <select class="template-select" aria-label="整理模板"></select></label><details class="ctx-panel"><summary>会议背景 / 关键术语（可选，填了整理更准）</summary><textarea class="meeting-context" name="meeting-context" aria-label="会议背景与关键术语" placeholder="例如：X 项目周会；术语：K8s、灰度发布；参会：张三、李四" style="width:100%;max-width:560px;min-height:72px;box-sizing:border-box;margin-top:8px"></textarea></details></div><button class="primary start-polish-btn">开始整理</button></div>`;
+    const selEl = procEl.querySelector('.template-select');
+    if (selEl) {
+      selEl.innerHTML = templates.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+      selEl.value = meetingTemplate || 'general';
+      selEl.addEventListener('change', () => savePrePolish({template: selEl.value}));
+    }
     const ctxEl = procEl.querySelector('.meeting-context');
     if (ctxEl) {
       ctxEl.value = meetingContext;
-      ctxEl.addEventListener('blur', () => saveMeetingContext(ctxEl.value));
+      ctxEl.addEventListener('blur', () => savePrePolish({meeting_context: ctxEl.value}));
     }
     procEl.querySelector('.start-polish-btn').addEventListener('click', runPolish);
   } else {
@@ -710,6 +722,11 @@ async function load() {
     currentProcessed = data.processed || '';
     currentSummary = data.summary || '';
     currentSummaryJson = data.summary_json || null;
+    meetingTemplate = meta.template || '';
+    try {
+      const td = await fetch('/api/settings/templates').then(r => r.json());
+      templates = [...(td.presets || []), ...(td.custom || [])];
+    } catch (e) { templates = []; }
     document.getElementById('m-title').textContent = meta.title;
     document.getElementById('m-page-title').textContent = `${meta.title} · 听记`;
     const durationStr = meta.duration_ms

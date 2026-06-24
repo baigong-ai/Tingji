@@ -98,6 +98,20 @@ def test_summary_to_md(cfg_api):
     assert "待讨论" not in md
 
 
+def test_polish_injects_template_hint(cfg_api):
+    sentences = [{"text": "hi", "start": 0, "end": 1000, "spk": 0}]
+    with mock.patch("app.llm._chat", return_value="## 说话人 0\nhi") as m:
+        llm.polish(sentences, cfg_api, template_hint="侧重决议与待办")
+    assert "侧重决议与待办" in m.call_args.args[0]
+
+
+def test_summarize_injects_template_hint(cfg_api):
+    raw = '{"summary":"s","decisions":[],"action_items":[],"open_questions":[]}'
+    with mock.patch("app.llm._chat", return_value=raw) as m:
+        llm.summarize("short", cfg_api, template_hint="侧重访谈主题")
+    assert "侧重访谈主题" in m.call_args.args[0]
+
+
 def test_polish_injects_meeting_context(cfg_api):
     sentences = [{"text": "hi", "start": 0, "end": 1000, "spk": 0}]
     with mock.patch("app.llm._chat", return_value="## 说话人 0\nhi") as m:

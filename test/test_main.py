@@ -78,6 +78,24 @@ def test_set_meeting_context_persists(client):
     assert meta["meeting_context"] == "X 项目周会；术语：K8s"
 
 
+def test_templates_roundtrip(client):
+    d = client.get("/api/settings/templates").json()
+    assert any(t["id"] == "company" for t in d["presets"])
+    assert d["custom"] == []
+    client.put("/api/settings/templates", json={"custom": [{"name": "播客剪辑", "hint": "侧重话题脉络"}]})
+    d2 = client.get("/api/settings/templates").json()
+    assert len(d2["custom"]) == 1
+    assert d2["custom"][0]["name"] == "播客剪辑"
+    assert d2["custom"][0]["id"].startswith("c-")
+
+
+def test_set_meeting_template(client):
+    mid = client.post("/api/upload", files={"audio": ("a.wav", io.BytesIO(b"x"), "audio/wav")}, data={"title": "T"}).json()["meeting_id"]
+    r = client.put(f"/api/meetings/{mid}/context", json={"template": "company"})
+    assert r.status_code == 200
+    assert client.get(f"/api/meetings/{mid}").json()["meta"]["template"] == "company"
+
+
 def test_export_txt_uses_speaker_names(client):
     mid = client.post("/api/upload", files={"audio": ("a.wav", io.BytesIO(b"x"), "audio/wav")}, data={"title": "T"}).json()["meeting_id"]
     storage.save_raw(mid, {"sentences": [

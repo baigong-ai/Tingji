@@ -154,6 +154,7 @@ document.querySelectorAll('.stab').forEach(btn => {
     document.querySelector(`.spanel[data-spanel="${btn.dataset.stab}"]`).classList.add('active');
     if (btn.dataset.stab === 'llm') loadLLM();
     if (btn.dataset.stab === 'hotwords') loadHotwords();
+    if (btn.dataset.stab === 'templates') loadTemplates();
   });
 });
 
@@ -315,6 +316,33 @@ document.getElementById('hotwords-save-btn').addEventListener('click', async () 
       document.getElementById('hotwords-result').textContent = '错误: ' + (d.detail || '保存失败');
     }
   } catch (e) { document.getElementById('hotwords-result').textContent = '保存失败: ' + e.message; }
+});
+
+// --- 整理模板（自定义） ---
+async function loadTemplates() {
+  try {
+    const d = await fetch('/api/settings/templates').then(r => r.json());
+    const lines = (d.custom || []).map(t => `${t.name}｜${t.hint || ''}`);
+    document.getElementById('templates-text').value = lines.join('\n');
+    document.getElementById('templates-result').textContent = '';
+  } catch (e) { document.getElementById('templates-result').textContent = '加载失败: ' + e.message; }
+}
+document.getElementById('templates-save-btn').addEventListener('click', async () => {
+  const lines = document.getElementById('templates-text').value.split('\n').map(s => s.trim()).filter(Boolean);
+  const custom = lines.map(line => {
+    const i = line.search(/[｜|]/);
+    if (i < 0) return { name: line, hint: '' };
+    return { name: line.slice(0, i).trim(), hint: line.slice(i + 1).trim() };
+  }).filter(t => t.name);
+  try {
+    const r = await fetch('/api/settings/templates', {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({custom})});
+    const d = await r.json();
+    if (r.ok) {
+      document.getElementById('templates-result').textContent = `已保存 ${(d.custom || []).length} 个自定义模板`;
+    } else {
+      document.getElementById('templates-result').textContent = '错误: ' + (d.detail || '保存失败');
+    }
+  } catch (e) { document.getElementById('templates-result').textContent = '保存失败: ' + e.message; }
 });
 
 // --- onboarding banner ---

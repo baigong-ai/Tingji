@@ -74,6 +74,7 @@
         <button class="stab active" data-stab="dir">数据目录</button>
         <button class="stab" data-stab="llm">LLM 配置</button>
         <button class="stab" data-stab="hotwords">热词</button>
+        <button class="stab" data-stab="templates">整理模板</button>
       </div>
 
       <div class="spanel active" data-spanel="dir">
@@ -127,6 +128,13 @@
         <div class="modal-actions"><button id="hotwords-save-btn" class="primary" type="button">保存热词</button></div>
       </div>
 
+      <div class="spanel" data-spanel="templates">
+        <p class="hint">整理前可按会议类型选模板，影响整理与总结的侧重点。预设已有：通用 / 公司会议 / 访谈 / 课堂讲座。下面添加<strong>自定义模板</strong>，每行一个，格式：<code>名称｜整理或总结的侧重点</code>（竖线可用全角 ｜ 或半角 |）。</p>
+        <textarea id="templates-text" rows="8" placeholder="例如：&#10;播客剪辑｜侧重话题脉络与可剪辑的金句&#10;售前沟通｜侧重客户痛点与下一步行动"></textarea>
+        <div id="templates-result" class="settings-result"></div>
+        <div class="modal-actions"><button id="templates-save-btn" class="primary" type="button">保存模板</button></div>
+      </div>
+
       <div class="modal-actions bottom">
         <button id="settings-close-btn" type="button">关闭</button>
       </div>
@@ -134,6 +142,6 @@
   </div>
 
   <script src="/static/access.js?v=1"></script>
-  <script src="/static/app.js?v=9"></script>
+  <script src="/static/app.js?v=10"></script>
 </body>
 </html>

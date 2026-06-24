@@ -474,11 +474,20 @@ async def rename_speakers(meeting_id: str, payload: dict):
 async def set_meeting_context(meeting_id: str, payload: dict):
     if storage.get_meeting(meeting_id) is None:
         raise HTTPException(404)
-    ctx = payload.get("meeting_context", "")
-    if not isinstance(ctx, str):
-        raise HTTPException(400, "背景说明需为文本")
-    storage.update_meta(meeting_id, meeting_context=ctx)
-    return {"ok": True, "meeting_context": ctx}
+    fields = {}
+    if "meeting_context" in payload:
+        ctx = payload["meeting_context"]
+        if not isinstance(ctx, str):
+            raise HTTPException(400, "背景说明需为文本")
+        fields["meeting_context"] = ctx
+    if "template" in payload:
+        tpl = payload["template"]
+        if not isinstance(tpl, str):
+            raise HTTPException(400, "模板格式错误")
+        fields["template"] = tpl
+    if fields:
+        storage.update_meta(meeting_id, **fields)
+    return {"ok": True, **fields}
 
 
 @app.put("/api/meetings/{meeting_id}/sentence")
@@ -532,6 +541,30 @@ async def set_hotwords(payload: dict):
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text("\n".join(cleaned), encoding="utf-8")
     return {"ok": True, "count": len(cleaned), "duplicates": len(non_empty) - len(cleaned)}
+
+
+@app.get("/api/settings/templates")
+async def get_templates():
+    return {"presets": llm.PRESET_TEMPLATES, "custom": storage.load_templates()}
+
+
+@app.put("/api/settings/templates")
+async def set_templates(payload: dict):
+    items = payload.get("custom") or []
+    if not isinstance(items, list):
+        raise HTTPException(400, "模板格式错误")
+    cleaned = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        name = str(it.get("name", "")).strip()
+        hint = str(it.get("hint", "")).strip()
+        if not name:
+            continue
+        slug = re.sub(r"[^\w一-龥]+", "-", name).strip("-").lower() or "t"
+        cleaned.append({"id": "c-" + slug, "name": name, "hint": hint})
+    storage.save_templates(cleaned)
+    return {"ok": True, "custom": cleaned}
 
 
 @app.delete("/api/meetings/{meeting_id}")

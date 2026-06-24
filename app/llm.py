@@ -121,7 +121,22 @@ def _context_block(meeting_context: str) -> str:
     return "会议背景（用户提供，整理/总结时参考；术语、人名、产品名以此为准）：\n" + c + "\n\n"
 
 
-def polish(sentences: list[dict], cfg: LLMConfig, on_log=None, on_progress=None, meeting_context: str = "") -> str:
+PRESET_TEMPLATES = [
+    {"id": "general", "name": "通用", "hint": ""},
+    {"id": "company", "name": "公司会议", "hint": "这是公司会议，整理与总结侧重决议（已确定的事项）和待办（明确负责人与截止时间）。"},
+    {"id": "interview", "name": "访谈", "hint": "这是访谈，侧重访谈主题、受访者关键观点、以及需要后续跟进（follow up）的问题。"},
+    {"id": "lecture", "name": "课堂/讲座", "hint": "这是课堂或讲座，侧重知识要点与逻辑脉络，便于复习回顾。"},
+]
+
+
+def _template_block(hint: str) -> str:
+    h = (hint or "").strip()
+    if not h:
+        return ""
+    return "整理/总结要求：" + h + "\n\n"
+
+
+def polish(sentences: list[dict], cfg: LLMConfig, on_log=None, on_progress=None, meeting_context: str = "", template_hint: str = "") -> str:
     def _log(level, msg):
         if on_log:
             try:
@@ -129,7 +144,7 @@ def polish(sentences: list[dict], cfg: LLMConfig, on_log=None, on_progress=None,
             except Exception:
                 pass
     chunks = chunk_sentences(sentences, cfg.polish_chunk_minutes)
-    ctx = _context_block(meeting_context)
+    ctx = _context_block(meeting_context) + _template_block(template_hint)
     _log("info", f"整理: 共 {len(chunks)} 段, 模型 {_model_name(cfg)}")
     outputs = []
     for i, chunk in enumerate(chunks):
@@ -207,14 +222,14 @@ def summary_to_md(d: dict) -> str:
     return "\n\n".join(parts)
 
 
-def summarize(processed_md: str, cfg: LLMConfig, on_log=None, meeting_context: str = "") -> dict | str:
+def summarize(processed_md: str, cfg: LLMConfig, on_log=None, meeting_context: str = "", template_hint: str = "") -> dict | str:
     def _log(level, msg):
         if on_log:
             try:
                 on_log(level, msg)
             except Exception:
                 pass
-    ctx = _context_block(meeting_context)
+    ctx = _context_block(meeting_context) + _template_block(template_hint)
     if len(processed_md) < 8000:
         t0 = time.time()
         _log("info", f"生成总结, 模型 {_model_name(cfg)}")

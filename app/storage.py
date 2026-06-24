@@ -123,6 +123,16 @@ def save_summary_json(meeting_id: str, data) -> None:
     f.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def load_templates() -> list:
+    return _read_json(DATA_DIR / "templates.json") or []
+
+
+def save_templates(templates: list) -> None:
+    (DATA_DIR / "templates.json").write_text(
+        json.dumps(templates, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
 def update_meta(meeting_id: str, **fields) -> None:
     mdir = DATA_DIR / meeting_id
     meta = _read_meta(mdir)

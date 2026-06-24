@@ -78,6 +78,18 @@ def _log_cb(meeting_id: str):
     return cb
 
 
+def _resolve_template_hint(tpl_id: str) -> str:
+    if not tpl_id:
+        return ""
+    for t in llm.PRESET_TEMPLATES:
+        if t["id"] == tpl_id:
+            return t.get("hint", "")
+    for t in storage.load_templates():
+        if t.get("id") == tpl_id:
+            return t.get("hint", "")
+    return ""
+
+
 def advance_asr_progress(task_id: str, elapsed_s: float) -> None:
     state = _tasks.get(task_id)
     if not state or state.get("estimated_total_s", 0) <= 0:
@@ -157,11 +169,13 @@ async def _run_polish(task_id, meeting_id, cfg) -> None:
     if not data["raw"]:
         raise RuntimeError("raw.json missing, cannot polish")
     sentences = data["raw"]["sentences"]
-    ctx = (data.get("meta") or {}).get("meeting_context") or ""
+    meta = data.get("meta") or {}
+    ctx = meta.get("meeting_context") or ""
+    hint = _resolve_template_hint(meta.get("template") or "")
     loop = asyncio.get_event_loop()
     def on_prog(frac):
         update(task_id, progress=int(POLISH_START + frac * (POLISH_END - POLISH_START)))
-    md = await loop.run_in_executor(None, llm.polish, sentences, cfg.llm, _log_cb(meeting_id), on_prog, ctx)
+    md = await loop.run_in_executor(None, llm.polish, sentences, cfg.llm, _log_cb(meeting_id), on_prog, ctx, hint)
     storage.save_processed(meeting_id, md)
     update(task_id, progress=POLISH_END)
 
@@ -170,9 +184,11 @@ async def _run_summarize(task_id, meeting_id, cfg) -> None:
     update(task_id, status="llm_summarizing", step="LLM 总结", progress=POLISH_END)
     data = storage.get_meeting(meeting_id)
     processed = data["processed"] or ""
-    ctx = (data.get("meta") or {}).get("meeting_context") or ""
+    meta = data.get("meta") or {}
+    ctx = meta.get("meeting_context") or ""
+    hint = _resolve_template_hint(meta.get("template") or "")
     loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(None, llm.summarize, processed, cfg.llm, _log_cb(meeting_id), ctx)
+    result = await loop.run_in_executor(None, llm.summarize, processed, cfg.llm, _log_cb(meeting_id), ctx, hint)
     if isinstance(result, dict):
         storage.save_summary_json(meeting_id, result)
         storage.save_summary(meeting_id, llm.summary_to_md(result))
