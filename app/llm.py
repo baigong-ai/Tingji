@@ -61,11 +61,15 @@ def _clean_response(text: str) -> str:
 
 def _chat(prompt: str, cfg: LLMConfig) -> str:
     client = _client(cfg)
-    resp = client.chat.completions.create(
-        model=_model_name(cfg),
-        messages=[{"role": "user", "content": prompt}],
-        temperature=cfg.temperature,
-    )
+    kwargs = {
+        "model": _model_name(cfg),
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": cfg.temperature,
+    }
+    if cfg.mode == "ollama":
+        # ollama 默认 num_ctx=4096，长会议整理/总结会超限报 400；放宽到 16k
+        kwargs["extra_body"] = {"options": {"num_ctx": 16384}}
+    resp = client.chat.completions.create(**kwargs)
     return _clean_response(resp.choices[0].message.content or "")
 
 

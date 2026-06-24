@@ -153,6 +153,7 @@ function highlightSentence(selector, ms) {
 function highlightCompare(ms) {
   const lines = document.querySelectorAll('#compare-raw-body .compare-raw-line');
   const procBlocks = document.querySelectorAll('#compare-processed-body .compare-proc-block');
+  const segs = window.__tingjiCompareSegs || [];
   if (!lines.length || !allSentences.length || !procBlocks.length) return;
 
   // 二分找当前播放到的原句
@@ -165,30 +166,23 @@ function highlightCompare(ms) {
   const targetLine = lines[currentIdx];
   if (!targetLine) return;
 
-  // 高亮当前原句
-  lines.forEach(l => l.classList.remove('compare-play-active'));
-  targetLine.classList.add('compare-play-active');
-
-  // 计算该原句与每个整理段的 Jaccard 相似度，找最匹配段
-  const sentTokens = tokenize(allSentences[currentIdx].text);
-  const procTokens = (window.__tingjiCompareProcTokens || []);
-  let bestIdx = -1, bestScore = 0;
-  procTokens.forEach((t, i) => {
-    const s = jaccard(sentTokens, t);
-    if (s > bestScore) { bestScore = s; bestIdx = i; }
-  });
-  procBlocks.forEach(b => b.classList.remove('compare-play-active'));
-  if (bestIdx >= 0 && bestScore > 0 && procBlocks[bestIdx]) {
-    procBlocks[bestIdx].classList.add('compare-play-active');
+  // 按时间区间找当前整理段
+  let segIdx = -1;
+  for (let i = 0; i < segs.length; i++) {
+    if (ms >= segs[i].start && ms < segs[i].end) { segIdx = i; break; }
   }
 
-  // 左栏滚动：当前原句到可视区（每 ~5 句滚一次，避免频繁滚动）
-  if (currentIdx !== lastCompareScrollIdx && Math.abs(currentIdx - (lastCompareScrollIdx || 0)) >= 3) {
+  lines.forEach(l => l.classList.remove('compare-play-active'));
+  targetLine.classList.add('compare-play-active');
+  procBlocks.forEach(b => b.classList.remove('compare-play-active'));
+  if (segIdx >= 0 && procBlocks[segIdx]) procBlocks[segIdx].classList.add('compare-play-active');
+
+  // 柔和滚动：每 ~5 句滚一次；右栏用 nearest 避免大幅跳动
+  if (currentIdx !== lastCompareScrollIdx && Math.abs(currentIdx - (lastCompareScrollIdx || 0)) >= 5) {
     targetLine.scrollIntoView({ behavior: 'smooth', block: 'center' });
     lastCompareScrollIdx = currentIdx;
-    // 右栏同步滚动到对应整理段
-    if (bestIdx >= 0 && bestScore > 0 && procBlocks[bestIdx]) {
-      procBlocks[bestIdx].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (segIdx >= 0 && procBlocks[segIdx]) {
+      procBlocks[segIdx].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
   }
 }
@@ -254,132 +248,90 @@ function renderProcessedSegments(md, sentences) {
   return html;
 }
 
-// 对照视图：左原文逐句，右整理段独立两栏；hover 通过关键词相似度跨栏定位
+// 对照视图：左原文逐句，右整理段；按时间区间关联（精确），hover 只高亮不跳，点击定位音频
 function renderCompare(md, sentences) {
   if (!sentences || !sentences.length) {
-    return { rawHtml: '<p class="empty-state">（暂无原句）</p>', procHtml: '' };
+    return { rawHtml: '<p class="empty-state">（暂无原句）</p>', procHtml: '', segs: [] };
   }
-  // 左：原文逐句（按时间）
+  // 左：原文逐句（带时间区间）
   const rawHtml = sentences.map((s, i) =>
-    `<div class="compare-raw-line" data-idx="${i}" data-start="${s.start}">` +
+    `<div class="compare-raw-line" data-idx="${i}" data-start="${s.start}" data-end="${s.end}">` +
     `<span class="ts">[${fmtTs(s.start)}]</span>` +
     `<span class="spk ${spkClass(s.spk)}">${escapeHtml(spkLabel(s.spk))}</span>` +
     `<span>${escapeHtml(s.text)}</span></div>`
   ).join('');
 
-  // 右：整理版按 ## 段落
+  // 右：整理段，按"说话人第 N 次发言"映射到原文时间区间
   let procHtml = '';
-  const procTokens = [];  // 每段对应的关键词集合
+  const segs = [];
   if (md) {
-    const parts = md.split(/^## /m);
-    for (const part of parts) {
+    const turns = buildSpeakerTurns(sentences);
+    const last = sentences[sentences.length - 1];
+    const lastEnd = (last && (last.end || last.start)) || 0;
+    const starts = [];
+    const blocks = [];
+    let turnPtr = 0;
+    const fallbackStart = turns.length ? turns[turns.length - 1].start : 0;
+    for (const part of md.split(/^## /m)) {
       if (!part.trim()) continue;
-      const m = part.match(/^说话人\s*(\d+)/);
+      const m = part.match(/^(?:说话人|speaker)\s*(\d+)/i);
       if (!m) continue;
-      const block = '## ' + part;
-      const html = marked.parse(applySpeakerNamesToMd(block));
-      procHtml += `<div class="compare-proc-block">${html}</div>`;
-      procTokens.push(tokenize(extractText(block)));
+      // 按 md 段顺序依次对应原文 turn 时间（单调递增，不重叠）
+      const st = turnPtr < turns.length ? turns[turnPtr].start : fallbackStart;
+      turnPtr++;
+      starts.push(st);
+      blocks.push('## ' + part);
+    }
+    for (let i = 0; i < blocks.length; i++) {
+      const end = i + 1 < starts.length ? starts[i + 1] : lastEnd;
+      segs.push({ start: starts[i], end });
+      procHtml += `<div class="compare-proc-block" data-start="${starts[i]}" data-end="${end}">${marked.parse(applySpeakerNamesToMd(blocks[i]))}</div>`;
     }
   } else {
     procHtml = '<p class="empty-state">（暂无整理版）</p>';
   }
-
-  // 暴露给播放同步逻辑使用
-  window.__tingjiCompareProcTokens = procTokens;
+  window.__tingjiCompareSegs = segs;
   lastCompareScrollIdx = -1;
-
-  return { rawHtml, procHtml, procTokens };
+  return { rawHtml, procHtml, segs };
 }
 
-// 简单中文分词：把文本拆成 1-2 字短串的集合，用于相似度匹配
-function tokenize(text) {
-  if (!text) return new Set();
-  const t = text.replace(/[，。！？、；：""''《》（）()\s,.!?;:"'()]/g, ' ').trim();
-  const set = new Set();
-  // 单字
-  for (const c of t) {
-    if (/[一-鿿]/.test(c) || /[a-zA-Z0-9]/.test(c)) set.add(c);
-  }
-  // 2-gram
-  for (let i = 0; i < t.length - 1; i++) {
-    const c = t[i], n = t[i + 1];
-    if ((/[一-鿿]/.test(c) && /[一-鿿]/.test(n)) ||
-        (/[a-zA-Z0-9]/.test(c) && /[a-zA-Z0-9]/.test(n))) {
-      set.add(c + n);
-    }
-  }
-  return set;
-}
-
-// 从 markdown 块提取纯文本（去 ## 标题和 markdown 标记）
-function extractText(block) {
-  return block
-    .replace(/^#+\s*/gm, '')
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/\*([^*]+)\*/g, '$1')
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    .replace(/[，。！？、；：""''《》（）()\s,.!?;:"'()]/g, ' ');
-}
-
-// hover 跨栏定位：原句 → 最匹配的整理段
-function setupCompareHover(sentences, procTokens) {
+// hover 跨栏高亮（按时间区间，只高亮不滚动，避免乱跳）；点击定位音频
+function setupCompareHover(sentences, segs) {
   const rawLines = document.querySelectorAll('#compare-raw-body .compare-raw-line');
   const procBlocks = document.querySelectorAll('#compare-processed-body .compare-proc-block');
-  if (!procTokens || !procTokens.length) return;
-
+  if (!segs || !segs.length) return;
+  const clearHover = () => {
+    rawLines.forEach(l => l.classList.remove('compare-link-active'));
+    procBlocks.forEach(b => b.classList.remove('compare-link-active'));
+  };
   rawLines.forEach((line, idx) => {
     const sent = sentences[idx];
     if (!sent) return;
-    const sentTokens = tokenize(sent.text);
-
     line.addEventListener('mouseenter', () => {
-      // 计算每个整理段的命中分
-      const scores = procTokens.map(t => jaccard(sentTokens, t));
-      const bestIdx = scores.indexOf(Math.max(...scores));
-      rawLines.forEach(l => l.classList.remove('compare-link-active'));
-      procBlocks.forEach((b, i) => b.classList.toggle('compare-link-active', i === bestIdx && scores[bestIdx] > 0));
+      clearHover();
       line.classList.add('compare-link-active');
-      // 滚到对应段
-      if (scores[bestIdx] > 0 && procBlocks[bestIdx]) {
-        procBlocks[bestIdx].scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-    });
-    line.addEventListener('mouseleave', () => {
-      rawLines.forEach(l => l.classList.remove('compare-link-active'));
-      procBlocks.forEach(b => b.classList.remove('compare-link-active'));
-    });
-  });
-
-  // 反向：hover 整理段 → 高亮包含最多关键词的所有原句
-  procBlocks.forEach((block, i) => {
-    const blockTokens = procTokens[i];
-    block.addEventListener('mouseenter', () => {
-      const hits = sentences.map((s, idx) => ({ idx, score: jaccard(blockTokens, tokenize(s.text)) }));
-      const maxScore = Math.max(...hits.map(h => h.score));
-      rawLines.forEach((l, idx) => {
-        const hit = hits[idx];
-        l.classList.toggle('compare-link-active', hit.score > 0 && hit.score >= maxScore * 0.6);
+      procBlocks.forEach((b, i) => {
+        const seg = segs[i];
+        if (seg && sent.start >= seg.start && sent.start < seg.end) b.classList.add('compare-link-active');
       });
-      procBlocks.forEach(b => b.classList.toggle('compare-link-active', b === block));
-      if (rawLines[hits.reduce((a, b) => b.score > a.score ? b : a, hits[0]).idx]) {
-        rawLines[hits.reduce((a, b) => b.score > a.score ? b : a, hits[0]).idx]
-          .scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
     });
-    block.addEventListener('mouseleave', () => {
-      rawLines.forEach(l => l.classList.remove('compare-link-active'));
-      procBlocks.forEach(b => b.classList.remove('compare-link-active'));
-    });
+    line.addEventListener('mouseleave', clearHover);
+    line.addEventListener('click', () => { audioPlayer.currentTime = sent.start / 1000; });
   });
-}
-
-function jaccard(a, b) {
-  if (!a.size || !b.size) return 0;
-  let inter = 0;
-  for (const x of a) if (b.has(x)) inter++;
-  return inter / (a.size + b.size - inter);
+  procBlocks.forEach((block, i) => {
+    const seg = segs[i];
+    if (!seg) return;
+    block.addEventListener('mouseenter', () => {
+      clearHover();
+      block.classList.add('compare-link-active');
+      rawLines.forEach((line, idx) => {
+        const s = sentences[idx];
+        if (s.start >= seg.start && s.start < seg.end) line.classList.add('compare-link-active');
+      });
+    });
+    block.addEventListener('mouseleave', clearHover);
+    block.addEventListener('click', () => { audioPlayer.currentTime = seg.start / 1000; });
+  });
 }
 
 function renderAll() {
@@ -397,7 +349,7 @@ function renderAll() {
   const cmp = renderCompare(currentProcessed, allSentences);
   document.getElementById('compare-raw-body').innerHTML = cmp.rawHtml;
   document.getElementById('compare-processed-body').innerHTML = cmp.procHtml;
-  setupCompareHover(allSentences, cmp.procTokens);
+  setupCompareHover(allSentences, cmp.segs);
   activeLine = null;
   lastIdx = -1;
 }

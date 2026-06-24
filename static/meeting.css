@@ -403,7 +403,7 @@ header h1 .brand:hover { opacity: 0.85; }
   color: var(--ink-soft);
   padding: 4px 8px;
   border-radius: var(--r-sm);
-  cursor: default;
+  cursor: pointer;
   transition: background var(--tx), color var(--tx);
 }
 .compare-raw-line .ts {
@@ -424,6 +424,7 @@ header h1 .brand:hover { opacity: 0.85; }
   border: 1px solid var(--paper-edge);
   background: var(--paper);
   transition: all var(--tx);
+  cursor: pointer;
 }
 .compare-proc-block:last-child { margin-bottom: 0; }
 /* hover 跨栏高亮 */
