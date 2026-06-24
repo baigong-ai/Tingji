@@ -10,15 +10,17 @@ Built on [FunASR](https://github.com/modelscope/FunASR) (speech recognition + sp
 
 ## Features
 
-- **Automatic speaker diarization** — CAM++ voice clustering tells "who is speaking"
+- **Automatic speaker diarization** — CAM++ voice clustering tells "who is speaking"; rename to real names, synced across all views and exports
+- **Speaker timeline** — a proportional bar at the top showing each speaker's share of talk time; click to jump to their first utterance, highlights the active speaker during playback
 - **Per-sentence timestamps** — click any sentence to seek the audio (without forcing playback); the current sentence auto-highlights and scrolls during playback
 - **Raw ↔ polished compare** — side-by-side columns aligned by timestamp; hover highlights, click seeks, playback stays in sync
 - **Manual correction + hotwords** — double-click a sentence to fix recognition errors; optionally add it as a hotword to improve accuracy next time
-- **One-click polish** — turns colloquial raw text into fluent prose, then generates minutes (topics / decisions / action items); an inline "Start polish" button appears once ASR is done
+- **One-click polish** — turns colloquial raw text into fluent prose, then generates structured minutes (summary / decisions / action items / open questions); optionally pick a summary template and fill in meeting background + common terms first
+- **Summary templates** — built-in General / Weekly / Interview / Project, plus custom (background, common terms, summary direction / content / framework) for different meeting types
 - **Live log** — progress bar + ASR device (GPU name) / model / per-chunk timing; warns when nothing updates for >15s so you can tell if it's stuck
 - **Bring-your-own LLM** — local Ollama, or any OpenAI-compatible API (GLM / DeepSeek / Qwen / Kimi / OpenAI …)
-- **Configure everything in the browser** — data directory, LLM, hotwords are all set via the web UI, no file editing
-- **Export** `.md` / `.txt` / `.srt`
+- **Configure everything in the browser** — data directory, LLM, hotwords, summary templates are all set via the web UI, no file editing
+- **Export** `.md` / `.txt` / `.srt` (md export uses real speaker names)
 - **Runs locally** — recordings and results never leave your machine
 
 <!-- ![Detail page](docs/screenshot-detail.png) -->
@@ -35,8 +37,8 @@ Built on [FunASR](https://github.com/modelscope/FunASR) (speech recognition + sp
 ## Quick start
 
 ```bash
-git clone https://github.com/baigong-ai/tingji.git
-cd tingji
+git clone https://github.com/baigong-ai/Tingji.git
+cd Tingji
 cp config.yaml.example config.yaml
 cp .env.example .env          # fill in LLM_API_KEY when using api mode
 
@@ -53,16 +55,24 @@ Open `http://127.0.0.1:8000` in your browser.
 1. **Upload** — drag in an audio file, enter a title, click "Start transcription"
 2. **Wait for recognition** — audio conversion + ASR run automatically; status stops at "Ready to polish"
 3. **Proofread** — on the "Raw" tab, double-click any sentence to correct it (optionally "add as hotword") to improve later accuracy
-4. **Polish** — click "Start polish" in the top right to generate the cleaned transcript and minutes
+4. **Polish** — click "Start polish" in the top right (optionally pick a summary template and fill in meeting background + common terms first) to generate the cleaned transcript and minutes
 
-The detail page has four tabs:
+The detail page has a fixed speaker timeline + toolbar (search, tabs) at the top; only the content area scrolls. Four tabs:
 
 - **Raw** — color-coded speakers + timestamps; click to seek audio
 - **Polished** — de-colloquialized, fluent text
-- **Summary** — topics / decisions / action items
+- **Summary** — summary / decisions / action items / open questions (structured; falls back to plain text if the model doesn't return strict JSON — still usable)
 - **Compare** — raw vs. polished side by side, aligned by timestamp; hover highlights, click seeks, playback follows
 
-Export `.md` / `.txt` / `.srt` from the top bar; click a speaker chip to rename it.
+Export `.md` / `.txt` / `.srt` from the top bar; click a speaker chip to rename it. "Re-polish" asks you to pick a template first.
+
+## Project status (v0.1)
+
+The core pipeline works: upload → recognition (with speaker diarization + timestamps) → proofread → one-click polish + structured minutes.
+
+**Done**: speaker timeline, structured minutes (summary / decisions / action items / open questions as JSON), summary templates (preset + custom), pre-polish meeting background + common terms, speaker rename synced across views and exports, md / txt / srt export, live log, fixed layout (top bar and toolbar don't scroll away).
+
+**Not yet**: manual speaker merge/split, editing the saved minutes, docx export, export options (with/without speaker or timestamps), agenda chapter splitting.
 
 ## Pre-downloading models (recommended)
 
@@ -120,6 +130,12 @@ llm:
   mode: api
   api: { base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1", api_key: "${LLM_API_KEY}", model: "qwen-plus" }
 ```
+
+### Model selection
+
+Pick based on your hardware. NVIDIA GPU with enough VRAM → a larger gguf like `Qwen3:8b`, fast polish and summary. Limited VRAM/memory or CPU-only → a smaller `qwen2.5:7b`, or just use an API (GLM, DeepSeek, Qwen); small local models are slow on CPU for long audio. On Apple Silicon, gguf works fine; `*-mlx` quantization is slow and memory-hungry on some Macs, so test with a short clip first.
+
+gguf is the default recommendation (`Qwen3:8b`, `qwen2.5`). Qwen3's thinking is disabled in code, otherwise it's very slow.
 
 ## Performance
 
