@@ -2,14 +2,25 @@
    听记 Tingji · 详情页样式（会议札记）
    ============================================================ */
 
-/* --- 主布局：杂志式 --- */
+/* --- 固定外壳：顶栏/元信息/搜索/Tab 固定，只有内容区滚动 --- */
+body { height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+header { flex-shrink: 0; }
+
 .meeting-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
   max-width: 940px;
   margin: 0 auto;
-  padding: 32px 28px 160px;
+  width: 100%;
+  padding: 20px 28px 0;
 }
+.meeting-body { flex: 1; overflow-y: auto; min-height: 0; padding-bottom: 24px; }
 
 .meeting-meta {
+  flex-shrink: 0;
   margin-bottom: 28px;
   padding-bottom: 20px;
   border-bottom: 1px solid var(--paper-edge);
@@ -219,8 +230,7 @@ header h1 .brand:hover { opacity: 0.85; }
 
 /* --- sticky 工具栏（在 header 下方） --- */
 .meeting-sticky {
-  position: sticky;
-  top: var(--header-height, 56px);
+  flex-shrink: 0;
   background: rgba(250, 248, 243, 0.95);
   backdrop-filter: blur(8px);
   padding: 14px 0;
@@ -605,10 +615,8 @@ mark.search-hit.current {
 
 /* --- 音频条（底部固定） --- */
 .audio-bar {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  position: static;
+  flex-shrink: 0;
   background: var(--ink);
   backdrop-filter: blur(12px);
   padding: 12px 24px;
