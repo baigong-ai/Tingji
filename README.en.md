@@ -11,9 +11,11 @@ Built on [FunASR](https://github.com/modelscope/FunASR) (speech recognition + sp
 ## Features
 
 - **Automatic speaker diarization** — CAM++ voice clustering tells "who is speaking"
-- **Per-sentence timestamps** — click any sentence to seek the audio; the current sentence auto-highlights and scrolls during playback
+- **Per-sentence timestamps** — click any sentence to seek the audio (without forcing playback); the current sentence auto-highlights and scrolls during playback
+- **Raw ↔ polished compare** — side-by-side columns aligned by timestamp; hover highlights, click seeks, playback stays in sync
 - **Manual correction + hotwords** — double-click a sentence to fix recognition errors; optionally add it as a hotword to improve accuracy next time
-- **One-click cleanup** — turns colloquial raw text into fluent prose, then generates minutes (topics / decisions / action items)
+- **One-click polish** — turns colloquial raw text into fluent prose, then generates minutes (topics / decisions / action items); an inline "Start polish" button appears once ASR is done
+- **Live log** — progress bar + ASR device (GPU name) / model / per-chunk timing; warns when nothing updates for >15s so you can tell if it's stuck
 - **Bring-your-own LLM** — local Ollama, or any OpenAI-compatible API (GLM / DeepSeek / Qwen / Kimi / OpenAI …)
 - **Configure everything in the browser** — data directory, LLM, hotwords are all set via the web UI, no file editing
 - **Export** `.md` / `.txt` / `.srt`
@@ -58,7 +60,7 @@ The detail page has four tabs:
 - **Raw** — color-coded speakers + timestamps; click to seek audio
 - **Polished** — de-colloquialized, fluent text
 - **Summary** — topics / decisions / action items
-- **Compare** — raw vs. polished side by side, scroll-synced
+- **Compare** — raw vs. polished side by side, aligned by timestamp; hover highlights, click seeks, playback follows
 
 Export `.md` / `.txt` / `.srt` from the top bar; click a speaker chip to rename it.
 
@@ -135,7 +137,9 @@ cp dns_hosts.txt.example dns_hosts.txt   # 2. if curl works but Python doesn't, 
 export HTTPS_PROXY=http://your-proxy:port && ./run.sh   # 3. use a proxy
 ```
 
-**LLM call failed** — for api mode check `LLM_API_KEY` and `base_url`; for ollama make sure `ollama serve` is running and the model is in `ollama list`. Failed chunks are marked `[polish failed]` — click "Re-polish" on the detail page.
+**LLM call failed / polish very slow** — for api mode check `LLM_API_KEY` and `base_url`; for ollama make sure `ollama serve` is running and the model is in `ollama list`. Failed chunks are marked `[polish failed]` — click "Re-polish" on the detail page.
+
+**ollama polish slow / summarize hits context limit** — prefer gguf-quantized models (`Qwen3:8b`, `qwen2.5`, etc.); `*-mlx` models are extremely slow on most machines and may exhaust memory, not recommended. The code already enlarges the context (`num_ctx=16384`) and disables Qwen3 thinking, so long meetings run reliably.
 
 **Reasoning models (Qwen3 / DeepSeek-R1) emit thinking traces** — the code already strips `<think>...</think>`; keep that cleanup if you swap in other reasoning models.
 
