@@ -121,6 +121,12 @@ llm:
   api: { base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1", api_key: "${LLM_API_KEY}", model: "qwen-plus" }
 ```
 
+### 模型选择
+
+模型选哪个看你的硬件。NVIDIA 显卡、显存够，就上 `Qwen3:8b` 这类大参数 gguf，整理和总结都快。显存或内存一般、或者只有 CPU，选小一点的 `qwen2.5:7b`，或者干脆走 API（GLM、DeepSeek、通义），本地小模型在 CPU 上整理长音频会很慢。Apple Silicon 上 gguf 没问题；`*-mlx` 量化在部分 Mac 上又慢又吃内存，先用一段短音频试一下再决定。
+
+默认推荐 gguf（`Qwen3:8b`、`qwen2.5`）。Qwen3 的 thinking 已经在代码里关掉，不然会很慢。
+
 ## 性能参考
 
 - 81 分钟访谈（GPU：RTX 4060 Ti）：识别约 2 分钟（RTF ≈ 0.025），完整流程约 7–8 分钟

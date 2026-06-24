@@ -70,6 +70,14 @@ def test_rename_speakers_persists(client):
     assert meta["speaker_names"] == {"0": "Alice", "1": "Bob"}
 
 
+def test_set_meeting_context_persists(client):
+    mid = client.post("/api/upload", files={"audio": ("a.wav", io.BytesIO(b"x"), "audio/wav")}, data={"title": "T"}).json()["meeting_id"]
+    r = client.put(f"/api/meetings/{mid}/context", json={"meeting_context": "X 项目周会；术语：K8s"})
+    assert r.status_code == 200
+    meta = client.get(f"/api/meetings/{mid}").json()["meta"]
+    assert meta["meeting_context"] == "X 项目周会；术语：K8s"
+
+
 def test_export_txt_uses_speaker_names(client):
     mid = client.post("/api/upload", files={"audio": ("a.wav", io.BytesIO(b"x"), "audio/wav")}, data={"title": "T"}).json()["meeting_id"]
     storage.save_raw(mid, {"sentences": [
@@ -88,6 +96,15 @@ def test_export_srt_uses_speaker_names(client):
     client.put(f"/api/meetings/{mid}/speakers", json={"names": {"0": "Alice"}})
     srt = client.get(f"/api/meetings/{mid}/export?format=srt").text
     assert "[Alice]" in srt
+
+
+def test_export_md_uses_speaker_names(client):
+    mid = client.post("/api/upload", files={"audio": ("a.wav", io.BytesIO(b"x"), "audio/wav")}, data={"title": "T"}).json()["meeting_id"]
+    storage.save_processed(mid, "## 说话人 0\n\n你好\n\n## 说话人1\n\n嗯\n")
+    client.put(f"/api/meetings/{mid}/speakers", json={"names": {"0": "Alice", "1": "Bob"}})
+    md = client.get(f"/api/meetings/{mid}/export?format=md").text
+    assert "Alice" in md and "Bob" in md
+    assert "说话人0" not in md and "说话人1" not in md
 
 
 def test_browse_lists_only_subdirs(client, tmp_path):

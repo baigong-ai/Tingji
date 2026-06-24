@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import platform
+import re
 import shutil
 import socket
 import urllib.request
@@ -428,7 +429,12 @@ async def export(meeting_id: str, format: str = "md"):
         raise HTTPException(404)
     mdir = storage.meeting_dir(meeting_id)
     if format == "md":
-        path = mdir / "processed.md"
+        names = (data.get("meta") or {}).get("speaker_names") or {}
+        text = (mdir / "processed.md").read_text(encoding="utf-8")
+        if names:
+            text = re.sub(r"说话人\s*(\d+)", lambda m: _spk_label(int(m.group(1)), names), text)
+        path = mdir / "export.md"
+        path.write_text(text, encoding="utf-8")
         media_type = "text/markdown"
     elif format == "txt":
         text = _to_plain_text(data["raw"], (data.get("meta") or {}).get("speaker_names") or {})
@@ -462,6 +468,17 @@ async def rename_speakers(meeting_id: str, payload: dict):
         raise HTTPException(400, "说话人名格式错误")
     storage.update_meta(meeting_id, speaker_names=names)
     return {"ok": True, "speaker_names": names}
+
+
+@app.put("/api/meetings/{meeting_id}/context")
+async def set_meeting_context(meeting_id: str, payload: dict):
+    if storage.get_meeting(meeting_id) is None:
+        raise HTTPException(404)
+    ctx = payload.get("meeting_context", "")
+    if not isinstance(ctx, str):
+        raise HTTPException(400, "背景说明需为文本")
+    storage.update_meta(meeting_id, meeting_context=ctx)
+    return {"ok": True, "meeting_context": ctx}
 
 
 @app.put("/api/meetings/{meeting_id}/sentence")

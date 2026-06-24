@@ -74,3 +74,22 @@ def test_summarize_long_map_reduce(cfg_api):
     with mock.patch("app.llm._chat", return_value="partial") as m:
         llm.summarize(long_md, cfg_api)
     assert m.call_count >= 2
+
+
+def test_polish_injects_meeting_context(cfg_api):
+    sentences = [{"text": "hi", "start": 0, "end": 1000, "spk": 0}]
+    with mock.patch("app.llm._chat", return_value="## 说话人 0\nhi") as m:
+        llm.polish(sentences, cfg_api, meeting_context="K8s 灰度发布")
+    assert "K8s 灰度发布" in m.call_args.args[0]
+
+
+def test_summarize_injects_meeting_context(cfg_api):
+    with mock.patch("app.llm._chat", return_value="## 核心议题\nx") as m:
+        llm.summarize("short", cfg_api, meeting_context="K8s 灰度发布")
+    assert "K8s 灰度发布" in m.call_args.args[0]
+
+
+def test_summarize_omits_context_when_empty(cfg_api):
+    with mock.patch("app.llm._chat", return_value="## 核心议题\nx") as m:
+        llm.summarize("short", cfg_api)
+    assert "会议背景" not in m.call_args.args[0]

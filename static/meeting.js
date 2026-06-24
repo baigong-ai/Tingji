@@ -9,6 +9,7 @@ let allSpkCount = 0;
 let currentProcessed = '';
 let currentSummary = '';
 let currentStatus = '';
+let meetingContext = '';
 let activeLine = null;
 let lastIdx = -1;
 let lastCompareScrollIdx = -1;
@@ -63,6 +64,14 @@ document.getElementById('export-btn').addEventListener('click', () => {
   const fmt = document.getElementById('export-format').value;
   location.href = `/api/meetings/${meetingId}/export?format=${fmt}`;
 });
+async function saveMeetingContext(ctx) {
+  try {
+    await fetch(`/api/meetings/${meetingId}/context`, {
+      method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({meeting_context: ctx})
+    });
+  } catch (e) { /* 静默，整理时再存一次 */ }
+}
 async function runPolish() {
   const retryBtn = document.getElementById('retry-btn');
   const ctaBtn = document.querySelector('.start-polish-btn');
@@ -74,6 +83,8 @@ async function runPolish() {
   };
   setBusy('整理中…');
   try {
+    const ctxEl = document.querySelector('.meeting-context');
+    if (ctxEl) await saveMeetingContext(ctxEl.value);
     const r = await fetch(`/api/meetings/${meetingId}/retry-llm`, { method: 'POST' });
     if (!r.ok) throw new Error('提交失败');
     const { task_id } = await r.json();
@@ -126,6 +137,7 @@ function renderRaw(container, sentences, clickable) {
 
 audioPlayer.addEventListener('timeupdate', () => {
   const ms = audioPlayer.currentTime * 1000;
+  highlightTimelineSpeaker(ms);
   if (document.getElementById('tab-raw').classList.contains('active')) {
     highlightSentence('#transcript .transcript-line', ms);
   } else if (document.getElementById('tab-compare').classList.contains('active')) {
@@ -336,10 +348,16 @@ function setupCompareHover(sentences, segs) {
 
 function renderAll() {
   renderSpeakersBar(allSpkCount);
+  renderTimeline();
   renderRaw(document.getElementById('transcript'), allSentences, true);
   const procEl = document.getElementById('processed-md');
   if (!currentProcessed && currentStatus === 'asr_done') {
-    procEl.innerHTML = `<div class="empty-cta"><p class="empty-state">原文已识别完成，如果检查没有问题，就可以开始整理会议纪要了</p><button class="primary start-polish-btn">开始整理</button></div>`;
+    procEl.innerHTML = `<div class="empty-cta"><p class="empty-state">原文已识别完成，如果检查没有问题，就可以开始整理会议纪要了</p><details class="ctx-panel"><summary>会议背景 / 关键术语（可选，填了整理更准）</summary><textarea class="meeting-context" name="meeting-context" aria-label="会议背景与关键术语" placeholder="例如：X 项目周会；术语：K8s、灰度发布；参会：张三、李四" style="width:100%;max-width:560px;min-height:72px;box-sizing:border-box;margin-top:8px"></textarea></details><button class="primary start-polish-btn">开始整理</button></div>`;
+    const ctxEl = procEl.querySelector('.meeting-context');
+    if (ctxEl) {
+      ctxEl.value = meetingContext;
+      ctxEl.addEventListener('blur', () => saveMeetingContext(ctxEl.value));
+    }
     procEl.querySelector('.start-polish-btn').addEventListener('click', runPolish);
   } else {
     procEl.innerHTML = renderProcessedSegments(currentProcessed, allSentences);
@@ -364,6 +382,48 @@ function renderSpeakersBar(count) {
     chip.addEventListener('click', () => editSpeaker(i));
     bar.appendChild(chip);
   }
+}
+
+function renderTimeline() {
+  const el = document.getElementById('speaker-timeline');
+  if (!el) return;
+  if (!allSentences.length) { el.innerHTML = ''; return; }
+  const dur = {}, firstStart = {};
+  for (const s of allSentences) {
+    const spk = Number(s.spk);
+    dur[spk] = (dur[spk] || 0) + Math.max(0, (s.end || s.start) - s.start);
+    if (!(spk in firstStart)) firstStart[spk] = s.start;
+  }
+  const spks = Object.keys(dur).map(Number).sort((a, b) => a - b);
+  const total = spks.reduce((a, s) => a + dur[s], 0) || 1;
+  el.innerHTML = spks.map(spk => {
+    const pct = (dur[spk] / total) * 100;
+    return `<div class="tl-seg" data-spk="${spk}" role="button" tabindex="0" style="flex:${dur[spk]};background:var(--spk-${spk % 7})" title="${escapeHtml(spkLabel(spk))} · 发言 ${pct.toFixed(0)}%，点击定位"><span>${escapeHtml(spkLabel(spk))} ${pct.toFixed(0)}%</span></div>`;
+  }).join('');
+  el.querySelectorAll('.tl-seg').forEach(seg => {
+    const go = () => {
+      const spk = Number(seg.dataset.spk);
+      const start = (firstStart[spk] || 0) / 1000;
+      audioPlayer.currentTime = start;
+      const rawTab = document.querySelector('.tab-btn[data-tab="raw"]');
+      if (rawTab && !document.getElementById('tab-raw').classList.contains('active')) rawTab.click();
+      lastIdx = -1;
+      highlightSentence('#transcript .transcript-line', start * 1000);
+    };
+    seg.addEventListener('click', go);
+    seg.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+  });
+}
+
+function highlightTimelineSpeaker(ms) {
+  const segs = document.querySelectorAll('#speaker-timeline .tl-seg');
+  if (!segs.length || !allSentences.length) return;
+  let idx = 0;
+  for (let i = 0; i < allSentences.length; i++) {
+    if (allSentences[i].start <= ms) idx = i; else break;
+  }
+  const cur = allSentences[idx] ? Number(allSentences[idx].spk) : -1;
+  segs.forEach(seg => seg.classList.toggle('speaking', Number(seg.dataset.spk) === cur));
 }
 
 async function editSpeaker(spk) {
@@ -626,6 +686,7 @@ async function load() {
     const data = await r.json();
     const meta = data.meta;
     speakerNames = meta.speaker_names || {};
+    meetingContext = meta.meeting_context || '';
     allSentences = (data.raw && data.raw.sentences) || [];
     allSpkCount = meta.spk_count || 0;
     currentProcessed = data.processed || '';

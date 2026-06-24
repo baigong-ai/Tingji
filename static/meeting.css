@@ -181,6 +181,35 @@ header h1 .brand:hover { opacity: 0.85; }
 .spk-5 { color: var(--spk-5); }
 .spk-6 { color: var(--spk-6); }
 
+/* --- 发言人发言时长分布条 --- */
+.speaker-timeline {
+  display: flex;
+  height: 24px;
+  margin-top: 10px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--ink-faint);
+}
+.speaker-timeline:empty { display: none; }
+.tl-seg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  padding: 0 6px;
+  cursor: pointer;
+  opacity: 0.8;
+  transition: opacity var(--tx);
+  min-width: 2px;
+}
+.tl-seg:hover { opacity: 1; }
+.tl-seg:focus-visible { outline: 2px solid var(--seal); outline-offset: -2px; }
+.tl-seg.speaking { opacity: 1; box-shadow: inset 0 0 0 2px rgba(255,255,255,0.75); }
+
 /* --- sticky 工具栏（在 header 下方） --- */
 .meeting-sticky {
   position: sticky;

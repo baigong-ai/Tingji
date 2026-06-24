@@ -116,7 +116,14 @@ def format_chunk(chunk: list[dict], mark_failed: bool = False) -> str:
     return "\n".join(lines).strip()
 
 
-def polish(sentences: list[dict], cfg: LLMConfig, on_log=None, on_progress=None) -> str:
+def _context_block(meeting_context: str) -> str:
+    c = (meeting_context or "").strip()
+    if not c:
+        return ""
+    return "会议背景（用户提供，整理/总结时参考；术语、人名、产品名以此为准）：\n" + c + "\n\n"
+
+
+def polish(sentences: list[dict], cfg: LLMConfig, on_log=None, on_progress=None, meeting_context: str = "") -> str:
     def _log(level, msg):
         if on_log:
             try:
@@ -124,12 +131,13 @@ def polish(sentences: list[dict], cfg: LLMConfig, on_log=None, on_progress=None)
             except Exception:
                 pass
     chunks = chunk_sentences(sentences, cfg.polish_chunk_minutes)
+    ctx = _context_block(meeting_context)
     _log("info", f"整理: 共 {len(chunks)} 段, 模型 {_model_name(cfg)}")
     outputs = []
     for i, chunk in enumerate(chunks):
         t0 = time.time()
         _log("info", f"整理第 {i+1}/{len(chunks)} 段 ...")
-        prompt = POLISH_PROMPT.format(input=format_chunk(chunk))
+        prompt = ctx + POLISH_PROMPT.format(input=format_chunk(chunk))
         success = False
         for _ in range(cfg.max_retries + 1):
             try:
@@ -156,17 +164,18 @@ def _split_text(text: str, size: int) -> list[str]:
     return [text[i:i + size] for i in range(0, len(text), size)]
 
 
-def summarize(processed_md: str, cfg: LLMConfig, on_log=None) -> str:
+def summarize(processed_md: str, cfg: LLMConfig, on_log=None, meeting_context: str = "") -> str:
     def _log(level, msg):
         if on_log:
             try:
                 on_log(level, msg)
             except Exception:
                 pass
+    ctx = _context_block(meeting_context)
     if len(processed_md) < 8000:
         t0 = time.time()
         _log("info", f"生成总结, 模型 {_model_name(cfg)}")
-        r = _chat(SUMMARIZE_PROMPT.format(input=processed_md), cfg)
+        r = _chat(ctx + SUMMARIZE_PROMPT.format(input=processed_md), cfg)
         _log("info", f"总结完成 ({time.time()-t0:.1f}s)")
         return r
     chunks = _split_text(processed_md, 6000)
@@ -175,9 +184,9 @@ def summarize(processed_md: str, cfg: LLMConfig, on_log=None) -> str:
     for i, c in enumerate(chunks):
         t0 = time.time()
         _log("info", f"总结第 {i+1}/{len(chunks)} 块 ...")
-        partials.append(_chat(SUMMARIZE_PROMPT.format(input=c), cfg))
+        partials.append(_chat(ctx + SUMMARIZE_PROMPT.format(input=c), cfg))
         _log("info", f"总结第 {i+1}/{len(chunks)} 块完成 ({time.time()-t0:.1f}s)")
     _log("info", "合并总结 ...")
-    r = _chat(REDUCE_PROMPT.format(input="\n\n".join(partials)), cfg)
+    r = _chat(ctx + REDUCE_PROMPT.format(input="\n\n".join(partials)), cfg)
     _log("info", "总结完成")
     return r

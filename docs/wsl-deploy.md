@@ -159,8 +159,9 @@ GPU 推理速度（实测 RTX 4060 Ti，81 分钟中文音频）：
 
 - ASR（paraformer + VAD + cam++）：约 2 分钟（RTF ≈ 0.025，识别速度约为实时的 40 倍）
 - LLM 整理 + 总结：取决于 LLM 后端
-  - 本地 Ollama（Qwen3:8b）：约 5-8 分钟
+  - 本地 Ollama（Qwen3:8b gguf）：约 5-8 分钟
   - API（GLM/DeepSeek）：1-2 分钟
+  - **WSL/NVIDIA 上不要用 `*-mlx`**：mlx 是 Apple Silicon 专用后端，在 NVIDIA/WSL 上后端不匹配（跑不动，非性能问题），用 gguf 版本
 
 总耗时约 7-10 分钟。CPU 模式 ASR 慢得多（RTF ≈ 0.25，约为音频时长的 1/4），长音频务必用 GPU。
 

@@ -157,10 +157,11 @@ async def _run_polish(task_id, meeting_id, cfg) -> None:
     if not data["raw"]:
         raise RuntimeError("raw.json missing, cannot polish")
     sentences = data["raw"]["sentences"]
+    ctx = (data.get("meta") or {}).get("meeting_context") or ""
     loop = asyncio.get_event_loop()
     def on_prog(frac):
         update(task_id, progress=int(POLISH_START + frac * (POLISH_END - POLISH_START)))
-    md = await loop.run_in_executor(None, llm.polish, sentences, cfg.llm, _log_cb(meeting_id), on_prog)
+    md = await loop.run_in_executor(None, llm.polish, sentences, cfg.llm, _log_cb(meeting_id), on_prog, ctx)
     storage.save_processed(meeting_id, md)
     update(task_id, progress=POLISH_END)
 
@@ -169,8 +170,9 @@ async def _run_summarize(task_id, meeting_id, cfg) -> None:
     update(task_id, status="llm_summarizing", step="LLM 总结", progress=POLISH_END)
     data = storage.get_meeting(meeting_id)
     processed = data["processed"] or ""
+    ctx = (data.get("meta") or {}).get("meeting_context") or ""
     loop = asyncio.get_event_loop()
-    md = await loop.run_in_executor(None, llm.summarize, processed, cfg.llm, _log_cb(meeting_id))
+    md = await loop.run_in_executor(None, llm.summarize, processed, cfg.llm, _log_cb(meeting_id), ctx)
     storage.save_summary(meeting_id, md)
     update(task_id, progress=SUMMARY_END)
 
