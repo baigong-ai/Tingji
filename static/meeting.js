@@ -92,11 +92,11 @@ async function savePrePolish(payload) {
     });
   } catch (e) { /* 静默，整理时再存一次 */ }
 }
-async function runPolish() {
+async function runPolish(skipConfirm = false) {
   const retryBtn = document.getElementById('retry-btn');
   const ctaBtn = document.querySelector('.start-polish-btn');
   const msg = currentStatus === 'asr_done' ? '开始整理 + 总结？' : '重新调用 LLM 整理 + 总结？';
-  if (!confirm(msg)) return;
+  if (!skipConfirm && !confirm(msg)) return;
   const setBusy = (text) => {
     if (retryBtn) { retryBtn.disabled = true; retryBtn.textContent = text; }
     if (ctaBtn) { ctaBtn.disabled = true; ctaBtn.textContent = text; ctaBtn.classList.add('busy'); }
@@ -128,7 +128,34 @@ async function runPolish() {
     location.reload();
   }
 }
-document.getElementById('retry-btn').addEventListener('click', runPolish);
+document.getElementById('retry-btn').addEventListener('click', () => {
+  // 有内联选择器（asr_done 首次整理）就走内联；否则（重新整理）弹模板选择框
+  if (document.querySelector('.template-select')) runPolish();
+  else openPolishSetup();
+});
+const polishSetupModal = document.getElementById('polish-setup-modal');
+function openPolishSetup() {
+  const sel = document.getElementById('modal-template-select');
+  if (sel) {
+    sel.innerHTML = templates.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+    sel.value = meetingTemplate || 'general';
+  }
+  const ctx = document.getElementById('modal-meeting-context');
+  if (ctx) ctx.value = meetingContext;
+  polishSetupModal.classList.remove('hidden');
+}
+document.getElementById('polish-setup-cancel').addEventListener('click', () => polishSetupModal.classList.add('hidden'));
+polishSetupModal.addEventListener('click', e => { if (e.target === polishSetupModal) polishSetupModal.classList.add('hidden'); });
+document.getElementById('polish-setup-confirm').addEventListener('click', async () => {
+  const sel = document.getElementById('modal-template-select');
+  const ctx = document.getElementById('modal-meeting-context');
+  const payload = {};
+  if (sel) payload.template = sel.value;
+  if (ctx) payload.meeting_context = ctx.value;
+  await savePrePolish(payload);
+  polishSetupModal.classList.add('hidden');
+  runPolish(true);
+});
 document.getElementById('settings-btn').addEventListener('click', () => {
   location.href = '/?settings=1';
 });
