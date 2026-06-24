@@ -152,6 +152,7 @@ document.querySelectorAll('.stab').forEach(btn => {
     document.querySelectorAll('.spanel').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
     document.querySelector(`.spanel[data-spanel="${btn.dataset.stab}"]`).classList.add('active');
+    if (btn.dataset.stab === 'dir') loadDir(window.__tingjiDataDir || '');
     if (btn.dataset.stab === 'llm') loadLLM();
     if (btn.dataset.stab === 'hotwords') loadHotwords();
     if (btn.dataset.stab === 'templates') loadTemplates();
@@ -162,10 +163,12 @@ async function openSettings() {
   settingsModal.classList.remove('hidden');
   try {
     const s = await fetch('/api/settings').then(r => r.json());
-    await loadDir(s.data_dir || '');
+    window.__tingjiDataDir = s.data_dir || '';
   } catch {
-    await loadDir('');
+    window.__tingjiDataDir = '';
   }
+  const active = document.querySelector('.stab.active');
+  if (active) active.click();
 }
 
 // --- data directory browser ---

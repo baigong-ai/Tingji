@@ -376,7 +376,7 @@ function renderAll() {
   renderRaw(document.getElementById('transcript'), allSentences, true);
   const procEl = document.getElementById('processed-md');
   if (!currentProcessed && currentStatus === 'asr_done') {
-    procEl.innerHTML = `<div class="empty-cta"><p class="empty-state">原文已识别完成，如果检查没有问题，就可以开始整理会议纪要了</p><div class="polish-setup"><label class="template-label">整理模板 <select class="template-select" aria-label="整理模板"></select></label><details class="ctx-panel"><summary>会议背景 / 关键术语（可选，填了整理更准）</summary><textarea class="meeting-context" name="meeting-context" aria-label="会议背景与关键术语" placeholder="例如：X 项目周会；术语：K8s、灰度发布；参会：张三、李四" style="width:100%;max-width:560px;min-height:72px;box-sizing:border-box;margin-top:8px"></textarea></details></div><button class="primary start-polish-btn">开始整理</button></div>`;
+    procEl.innerHTML = `<div class="empty-cta"><p class="empty-state">原文已识别完成，如果检查没有问题，就可以开始整理会议纪要了</p><div class="polish-setup"><label class="template-label">总结模板 <select class="template-select" aria-label="总结模板"></select></label><details class="ctx-panel"><summary>会议背景 / 关键术语（可选，填了整理更准）</summary><textarea class="meeting-context" name="meeting-context" aria-label="会议背景与关键术语" placeholder="例如：X 项目周会；术语：K8s、灰度发布；参会：张三、李四" style="width:100%;max-width:560px;min-height:72px;box-sizing:border-box;margin-top:8px"></textarea></details></div><button class="primary start-polish-btn">开始整理</button></div>`;
     const selEl = procEl.querySelector('.template-select');
     if (selEl) {
       selEl.innerHTML = templates.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');

@@ -287,7 +287,8 @@ header h1 .brand:hover { opacity: 0.85; }
   transition: all var(--tx);
   position: relative;
 }
-.tabs button:hover { color: var(--ink); }
+.tabs button:hover { background: transparent; color: var(--ink); }
+.tabs button.active:hover { color: var(--seal); }
 .tabs button.active {
   color: var(--seal);
   border-bottom-color: var(--seal);

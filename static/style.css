@@ -695,7 +695,8 @@ button.mini:hover:not(:disabled) {
   letter-spacing: 0.08em;
   transition: all var(--tx);
 }
-.settings-tabs .stab:hover { color: var(--ink); }
+.settings-tabs .stab:hover { background: transparent; color: var(--ink); }
+.settings-tabs .stab.active:hover { color: var(--seal); }
 .settings-tabs .stab.active {
   color: var(--seal);
   border-bottom-color: var(--seal);
