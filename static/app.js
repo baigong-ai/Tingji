@@ -321,31 +321,80 @@ document.getElementById('hotwords-save-btn').addEventListener('click', async () 
   } catch (e) { document.getElementById('hotwords-result').textContent = '保存失败: ' + e.message; }
 });
 
-// --- 整理模板（自定义） ---
+// --- 总结模板（列表 + 字段编辑） ---
+let tplList = [];
+let tplIdx = 0;
+const TPL_FIELDS = ['name','background','terms','direction','content','framework'];
+function blankTpl() { return {id:'', name:'新模板', background:'',terms:'',direction:'',content:'',framework:''}; }
 async function loadTemplates() {
+  const res = document.getElementById('templates-result');
   try {
     const d = await fetch('/api/settings/templates').then(r => r.json());
-    const lines = (d.custom || []).map(t => `${t.name}｜${t.hint || ''}`);
-    document.getElementById('templates-text').value = lines.join('\n');
-    document.getElementById('templates-result').textContent = '';
-  } catch (e) { document.getElementById('templates-result').textContent = '加载失败: ' + e.message; }
+    tplList = d.templates || [];
+    if (!tplList.length) tplList = [blankTpl()];
+    tplIdx = 0;
+    renderTplSelect();
+    loadTplFields();
+    res.textContent = '';
+  } catch (e) { res.textContent = '加载失败: ' + e.message; }
 }
+function renderTplSelect() {
+  const sel = document.getElementById('tpl-select');
+  sel.innerHTML = '';
+  tplList.forEach((t, i) => {
+    const o = document.createElement('option');
+    o.value = i;
+    o.textContent = t.name || '(未命名)';
+    if (i === tplIdx) o.selected = true;
+    sel.appendChild(o);
+  });
+}
+function loadTplFields() {
+  const t = tplList[tplIdx] || {};
+  TPL_FIELDS.forEach(f => { const el = document.getElementById('tpl-' + f); if (el) el.value = t[f] || ''; });
+}
+function saveTplFieldsToList() {
+  const t = tplList[tplIdx]; if (!t) return;
+  TPL_FIELDS.forEach(f => { const el = document.getElementById('tpl-' + f); if (el) t[f] = el.value; });
+}
+document.getElementById('tpl-select').addEventListener('change', e => {
+  saveTplFieldsToList();
+  tplIdx = Number(e.target.value);
+  loadTplFields();
+});
+document.getElementById('tpl-new-btn').addEventListener('click', () => {
+  saveTplFieldsToList();
+  tplList.push(blankTpl());
+  tplIdx = tplList.length - 1;
+  renderTplSelect();
+  loadTplFields();
+  document.getElementById('tpl-name').focus();
+});
+document.getElementById('tpl-del-btn').addEventListener('click', () => {
+  if (!tplList.length) return;
+  if (!confirm('删除当前模板？')) return;
+  tplList.splice(tplIdx, 1);
+  if (!tplList.length) tplList.push(blankTpl());
+  tplIdx = Math.min(tplIdx, tplList.length - 1);
+  renderTplSelect();
+  loadTplFields();
+});
 document.getElementById('templates-save-btn').addEventListener('click', async () => {
-  const lines = document.getElementById('templates-text').value.split('\n').map(s => s.trim()).filter(Boolean);
-  const custom = lines.map(line => {
-    const i = line.search(/[｜|]/);
-    if (i < 0) return { name: line, hint: '' };
-    return { name: line.slice(0, i).trim(), hint: line.slice(i + 1).trim() };
-  }).filter(t => t.name);
+  saveTplFieldsToList();
+  const res = document.getElementById('templates-result');
   try {
-    const r = await fetch('/api/settings/templates', {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({custom})});
+    const r = await fetch('/api/settings/templates', {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({templates: tplList})});
     const d = await r.json();
     if (r.ok) {
-      document.getElementById('templates-result').textContent = `已保存 ${(d.custom || []).length} 个自定义模板`;
+      tplList = d.templates || tplList;
+      tplIdx = Math.min(tplIdx, tplList.length - 1);
+      renderTplSelect();
+      loadTplFields();
+      res.textContent = `已保存 ${tplList.length} 个模板`;
     } else {
-      document.getElementById('templates-result').textContent = '错误: ' + (d.detail || '保存失败');
+      res.textContent = '错误: ' + (d.detail || '保存失败');
     }
-  } catch (e) { document.getElementById('templates-result').textContent = '保存失败: ' + e.message; }
+  } catch (e) { res.textContent = '保存失败: ' + e.message; }
 });
 
 // --- onboarding banner ---

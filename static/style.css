@@ -705,6 +705,15 @@ button.mini:hover:not(:disabled) {
 .spanel { display: none; }
 .spanel.active { display: block; }
 
+/* 总结模板编辑器 */
+.tpl-list-row { display: flex; gap: 8px; margin-bottom: 14px; align-items: center; }
+.tpl-list-row select { flex: 1; min-width: 0; }
+.tpl-fields { display: flex; flex-direction: column; gap: 10px; }
+.tpl-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ink-faint); letter-spacing: 0.04em; }
+.tpl-field input, .tpl-field textarea { font-size: 13px; color: var(--ink); font-family: var(--font-body); padding: 6px 8px; border: 1px solid var(--paper-edge); border-radius: var(--r-sm); background: var(--paper); }
+.tpl-field textarea { resize: vertical; line-height: 1.5; }
+.tpl-field input:focus, .tpl-field textarea:focus { outline: none; border-color: var(--seal); }
+
 /* 目录浏览器 */
 .dir-browser {
   background: var(--paper-deep);

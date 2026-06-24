@@ -121,19 +121,29 @@ def _context_block(meeting_context: str) -> str:
     return "会议背景（用户提供，整理/总结时参考；术语、人名、产品名以此为准）：\n" + c + "\n\n"
 
 
-PRESET_TEMPLATES = [
-    {"id": "general", "name": "通用", "hint": ""},
-    {"id": "company", "name": "公司会议", "hint": "这是公司会议，整理与总结侧重决议（已确定的事项）和待办（明确负责人与截止时间）。"},
-    {"id": "interview", "name": "访谈", "hint": "这是访谈，侧重访谈主题、受访者关键观点、以及需要后续跟进（follow up）的问题。"},
-    {"id": "lecture", "name": "课堂/讲座", "hint": "这是课堂或讲座，侧重知识要点与逻辑脉络，便于复习回顾。"},
+DEFAULT_TEMPLATES = [
+    {"id": "general", "name": "普通会议", "background": "", "terms": "", "direction": "全面总结会议讨论的内容", "content": "核心议题、决议、待办、待讨论问题", "framework": "概述 + 决议 + 待办 + 待讨论"},
+    {"id": "weekly", "name": "周会", "background": "", "terms": "", "direction": "聚焦本周进展、阻塞与下周计划", "content": "各人进展、阻塞点、下周待办", "framework": "进展 + 阻塞 + 待办（带负责人）"},
+    {"id": "interview", "name": "访谈采访", "background": "", "terms": "", "direction": "围绕访谈主题提炼观点与故事", "content": "访谈主题、关键观点、金句、待跟进问题", "framework": "主题 + 观点 + follow-up"},
+    {"id": "project", "name": "项目管理", "background": "", "terms": "", "direction": "聚焦任务、责任人与里程碑", "content": "任务进展、负责人、里程碑、风险", "framework": "任务 + 负责人 + 里程碑 + 风险"},
 ]
 
 
-def _template_block(hint: str) -> str:
-    h = (hint or "").strip()
-    if not h:
+def template_prompt_block(tpl: dict) -> str:
+    if not tpl:
         return ""
-    return "整理/总结要求：" + h + "\n\n"
+    parts = []
+    if str(tpl.get("background", "")).strip():
+        parts.append("会议背景：" + tpl["background"].strip())
+    if str(tpl.get("terms", "")).strip():
+        parts.append("常用术语/人名/产品名（以此为准，纠正识别错误）：" + tpl["terms"].strip())
+    if str(tpl.get("direction", "")).strip():
+        parts.append("总结方向：" + tpl["direction"].strip())
+    if str(tpl.get("content", "")).strip():
+        parts.append("总结内容侧重：" + tpl["content"].strip())
+    if str(tpl.get("framework", "")).strip():
+        parts.append("总结框架：" + tpl["framework"].strip())
+    return ("模板要求：\n" + "\n".join(parts) + "\n\n") if parts else ""
 
 
 def polish(sentences: list[dict], cfg: LLMConfig, on_log=None, on_progress=None, meeting_context: str = "", template_hint: str = "") -> str:
@@ -144,7 +154,7 @@ def polish(sentences: list[dict], cfg: LLMConfig, on_log=None, on_progress=None,
             except Exception:
                 pass
     chunks = chunk_sentences(sentences, cfg.polish_chunk_minutes)
-    ctx = _context_block(meeting_context) + _template_block(template_hint)
+    ctx = _context_block(meeting_context) + (template_hint or "")
     _log("info", f"整理: 共 {len(chunks)} 段, 模型 {_model_name(cfg)}")
     outputs = []
     for i, chunk in enumerate(chunks):
@@ -229,7 +239,7 @@ def summarize(processed_md: str, cfg: LLMConfig, on_log=None, meeting_context: s
                 on_log(level, msg)
             except Exception:
                 pass
-    ctx = _context_block(meeting_context) + _template_block(template_hint)
+    ctx = _context_block(meeting_context) + (template_hint or "")
     if len(processed_md) < 8000:
         t0 = time.time()
         _log("info", f"生成总结, 模型 {_model_name(cfg)}")

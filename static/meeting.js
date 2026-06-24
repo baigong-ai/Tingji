@@ -725,7 +725,7 @@ async function load() {
     meetingTemplate = meta.template || '';
     try {
       const td = await fetch('/api/settings/templates').then(r => r.json());
-      templates = [...(td.presets || []), ...(td.custom || [])];
+      templates = td.templates || [];
     } catch (e) { templates = []; }
     document.getElementById('m-title').textContent = meta.title;
     document.getElementById('m-page-title').textContent = `${meta.title} · 听记`;

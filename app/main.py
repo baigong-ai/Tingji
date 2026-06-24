@@ -545,26 +545,35 @@ async def set_hotwords(payload: dict):
 
 @app.get("/api/settings/templates")
 async def get_templates():
-    return {"presets": llm.PRESET_TEMPLATES, "custom": storage.load_templates()}
+    items = storage.load_templates()
+    if not items:
+        items = [dict(t) for t in llm.DEFAULT_TEMPLATES]
+        storage.save_templates(items)
+    return {"templates": items}
 
 
 @app.put("/api/settings/templates")
 async def set_templates(payload: dict):
-    items = payload.get("custom") or []
+    items = payload.get("templates") or []
     if not isinstance(items, list):
         raise HTTPException(400, "模板格式错误")
+    fields = ("background", "terms", "direction", "content", "framework")
     cleaned = []
     for it in items:
         if not isinstance(it, dict):
             continue
         name = str(it.get("name", "")).strip()
-        hint = str(it.get("hint", "")).strip()
         if not name:
             continue
-        slug = re.sub(r"[^\w一-龥]+", "-", name).strip("-").lower() or "t"
-        cleaned.append({"id": "c-" + slug, "name": name, "hint": hint})
+        tid = str(it.get("id", "")).strip()
+        if not tid:
+            tid = "c-" + (re.sub(r"[^\w一-龥]+", "-", name).strip("-").lower() or "t")
+        row = {"id": tid, "name": name}
+        for f in fields:
+            row[f] = str(it.get(f, "")).strip()
+        cleaned.append(row)
     storage.save_templates(cleaned)
-    return {"ok": True, "custom": cleaned}
+    return {"ok": True, "templates": cleaned}
 
 
 @app.delete("/api/meetings/{meeting_id}")

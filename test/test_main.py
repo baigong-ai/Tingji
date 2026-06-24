@@ -78,15 +78,16 @@ def test_set_meeting_context_persists(client):
     assert meta["meeting_context"] == "X 项目周会；术语：K8s"
 
 
-def test_templates_roundtrip(client):
+def test_templates_seed_and_roundtrip(client):
     d = client.get("/api/settings/templates").json()
-    assert any(t["id"] == "company" for t in d["presets"])
-    assert d["custom"] == []
-    client.put("/api/settings/templates", json={"custom": [{"name": "播客剪辑", "hint": "侧重话题脉络"}]})
+    tpls = d["templates"]
+    assert any(t["id"] == "general" for t in tpls)
+    assert any(t["name"] == "周会" for t in tpls)
+    client.put("/api/settings/templates", json={"templates": tpls + [{"name": "播客剪辑", "direction": "话题脉络"}]})
     d2 = client.get("/api/settings/templates").json()
-    assert len(d2["custom"]) == 1
-    assert d2["custom"][0]["name"] == "播客剪辑"
-    assert d2["custom"][0]["id"].startswith("c-")
+    assert any(t["name"] == "播客剪辑" for t in d2["templates"])
+    assert d2["templates"][-1]["id"].startswith("c-")
+    assert d2["templates"][-1]["direction"] == "话题脉络"
 
 
 def test_set_meeting_template(client):

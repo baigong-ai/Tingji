@@ -81,12 +81,9 @@ def _log_cb(meeting_id: str):
 def _resolve_template_hint(tpl_id: str) -> str:
     if not tpl_id:
         return ""
-    for t in llm.PRESET_TEMPLATES:
-        if t["id"] == tpl_id:
-            return t.get("hint", "")
     for t in storage.load_templates():
         if t.get("id") == tpl_id:
-            return t.get("hint", "")
+            return llm.template_prompt_block(t)
     return ""
 
 

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>听记 · 让录音变成文字</title>
-  <link rel="stylesheet" href="/static/style.css?v=8">
+  <link rel="stylesheet" href="/static/style.css?v=9">
 </head>
 <body>
   <header>
@@ -129,8 +129,20 @@
       </div>
 
       <div class="spanel" data-spanel="templates">
-        <p class="hint">整理前可按会议类型选模板，影响整理与总结的侧重点。预设已有：通用 / 公司会议 / 访谈 / 课堂讲座。下面添加<strong>自定义模板</strong>，每行一个，格式：<code>名称｜整理或总结的侧重点</code>（竖线可用全角 ｜ 或半角 |）。</p>
-        <textarea id="templates-text" rows="8" placeholder="例如：&#10;播客剪辑｜侧重话题脉络与可剪辑的金句&#10;售前沟通｜侧重客户痛点与下一步行动"></textarea>
+        <p class="hint">整理前选一个模板，决定整理与总结的侧重点。选中后可在下面编辑字段：会议背景、常用词语（让模型按这些词纠正识别错误的人名/术语）、总结方向、内容、框架。内置 普通会议 / 周会 / 访谈采访 / 项目管理 作参考，可改可加。</p>
+        <div class="tpl-list-row">
+          <select id="tpl-select" aria-label="选择模板"></select>
+          <button id="tpl-new-btn" class="mini" type="button">新建</button>
+          <button id="tpl-del-btn" class="mini" type="button">删除</button>
+        </div>
+        <div class="tpl-fields">
+          <label class="tpl-field">名称<input id="tpl-name" type="text"></label>
+          <label class="tpl-field">会议背景<textarea id="tpl-background" rows="2" placeholder="这类会议的一般背景"></textarea></label>
+          <label class="tpl-field">常用词语<textarea id="tpl-terms" rows="2" placeholder="人名、产品名、术语，逗号或换行分隔"></textarea></label>
+          <label class="tpl-field">总结方向<textarea id="tpl-direction" rows="2" placeholder="这次总结想突出什么"></textarea></label>
+          <label class="tpl-field">总结内容<textarea id="tpl-content" rows="2" placeholder="希望覆盖哪些内容"></textarea></label>
+          <label class="tpl-field">总结框架<textarea id="tpl-framework" rows="2" placeholder="希望的输出结构"></textarea></label>
+        </div>
         <div id="templates-result" class="settings-result"></div>
         <div class="modal-actions"><button id="templates-save-btn" class="primary" type="button">保存模板</button></div>
       </div>
@@ -142,6 +154,6 @@
   </div>
 
   <script src="/static/access.js?v=1"></script>
-  <script src="/static/app.js?v=11"></script>
+  <script src="/static/app.js?v=12"></script>
 </body>
 </html>

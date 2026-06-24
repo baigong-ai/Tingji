@@ -112,6 +112,16 @@ def test_summarize_injects_template_hint(cfg_api):
     assert "侧重访谈主题" in m.call_args.args[0]
 
 
+def test_template_prompt_block(cfg_api):
+    tpl = {"background": "周会", "terms": "K8s、灰度", "direction": "进展", "content": "", "framework": ""}
+    block = llm.template_prompt_block(tpl)
+    assert "会议背景：周会" in block
+    assert "K8s、灰度" in block
+    assert "总结方向：进展" in block
+    assert "总结内容" not in block
+    assert llm.template_prompt_block({}) == ""
+
+
 def test_polish_injects_meeting_context(cfg_api):
     sentences = [{"text": "hi", "start": 0, "end": 1000, "spk": 0}]
     with mock.patch("app.llm._chat", return_value="## 说话人 0\nhi") as m:
