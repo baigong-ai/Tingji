@@ -23,6 +23,10 @@ def main():
     print(f"  -> {len(processed)} chars, saved data/smoke_processed.md")
     print("summarizing...")
     summary = summarize(processed, cfg.llm)
+    if isinstance(summary, dict):
+        from app.llm import summary_to_md
+        summary = summary_to_md(summary)
+        print("  -> dict (4 段), rendered to markdown")
     Path("data/smoke_summary.md").write_text(summary, encoding="utf-8")
     print(f"  -> {len(summary)} chars, saved data/smoke_summary.md")
     print("\n=== summary ===")

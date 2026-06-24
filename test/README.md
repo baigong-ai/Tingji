@@ -7,7 +7,7 @@ uv pip install -e ".[dev]"
 pytest -v
 ```
 
-27 个测试覆盖 config / audio / storage / llm / asr / tasks / main 全部模块。
+48 个测试覆盖 config / audio / storage / llm / asr / tasks / main 全部模块。
 
 ## 冒烟脚本
 
@@ -29,7 +29,7 @@ export LLM_API_KEY=your-key
 uv run python test/smoke_llm.py data/smoke_raw.json
 ```
 
-验证：`data/smoke_processed.md` 含 `## 说话人 N` 分段；`data/smoke_summary.md` 含 `## 核心议题 / ## 决议 / ## 待办`。
+验证：`data/smoke_processed.md` 含 `## 说话人 N` 分段；`summarize` 现输出 4 段 JSON（summary/decisions/action_items/open_questions），脚本把它渲染成 `data/smoke_summary.md`（`## 概述 / ## 决议 / ## 待办 / ## 待讨论`），模型偶尔不吐严格 JSON 时回退纯 markdown。
 
 ## 测试音频
 

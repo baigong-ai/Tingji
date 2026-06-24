@@ -54,7 +54,7 @@ source ~/.bashrc
 ## 4. 拉代码 + 下载模型
 
 ```bash
-git clone https://github.com/baigong-ai/tingji.git funasr
+git clone https://github.com/baigong-ai/Tingji.git funasr
 cd funasr
 
 cp config.yaml.example config.yaml
