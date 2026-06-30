@@ -123,6 +123,28 @@ def save_summary_json(meeting_id: str, data) -> None:
     f.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def append_log_line(meeting_id: str, entry: dict) -> None:
+    f = DATA_DIR / meeting_id / "log.jsonl"
+    with f.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def read_log_lines(meeting_id: str) -> list:
+    f = DATA_DIR / meeting_id / "log.jsonl"
+    if not f.exists():
+        return []
+    out = []
+    for line in f.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            out.append(json.loads(line))
+        except Exception:
+            pass
+    return out
+
+
 def load_templates() -> list:
     return _read_json(DATA_DIR / "templates.json") or []
 

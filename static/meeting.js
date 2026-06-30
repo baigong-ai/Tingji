@@ -683,6 +683,15 @@ function fmtElapsed(sec) {
   const m = Math.floor(sec / 60), s = sec % 60;
   return `${m}m${s}s`;
 }
+function fmtTotalTimings(timings) {
+  if (!timings) return '';
+  const total = ['convert','asr','polish','summarize'].reduce((a, k) => a + (timings[k] || 0), 0);
+  if (!total) return '';
+  const sec = Math.round(total);
+  if (sec < 60) return `处理 ${sec}s`;
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return `处理 ${m}m${s}s`;
+}
 async function refreshLog() {
   try {
     const d = await fetch(`/api/meetings/${meetingId}/logs`).then(r => r.json());
@@ -759,8 +768,10 @@ async function load() {
     const durationStr = meta.duration_ms
       ? `${Math.floor(meta.duration_ms/60000)}分${Math.floor((meta.duration_ms%60000)/1000)}秒`
       : '--';
-    document.getElementById('m-meta').textContent =
-      `${fmtDate(meta.created_at)} · ${durationStr} · ${meta.spk_count} 人 · ${statusLabel(meta.status)}`;
+    let metaLine = `${fmtDate(meta.created_at)} · ${durationStr} · ${meta.spk_count} 人 · ${statusLabel(meta.status)}`;
+    const tStr = fmtTotalTimings(meta.timings);
+    if (tStr) metaLine += ' · ' + tStr;
+    document.getElementById('m-meta').textContent = metaLine;
     currentStatus = meta.status;
     const retryBtn = document.getElementById('retry-btn');
     const processing = ['pending','converting','asr_running','llm_polishing','llm_summarizing'];

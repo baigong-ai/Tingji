@@ -55,9 +55,14 @@ def update(task_id: str, **fields) -> None:
 
 
 def append_log(meeting_id: str, level: str, msg: str) -> None:
+    entry = {"ts": time.time(), "level": level, "msg": msg}
+    try:
+        storage.append_log_line(meeting_id, entry)
+    except Exception:
+        pass
     for st in _tasks.values():
         if st["meeting_id"] == meeting_id:
-            st["logs"].append({"ts": time.time(), "level": level, "msg": msg})
+            st["logs"].append(entry)
             if len(st["logs"]) > 300:
                 st["logs"] = st["logs"][-300:]
             return
@@ -69,7 +74,9 @@ def get_logs(meeting_id: str) -> dict:
             return {"status": st["status"], "progress": st["progress"], "step": st["step"], "logs": st["logs"]}
     meta = storage.get_meeting(meeting_id)
     status = meta["meta"]["status"] if meta else "unknown"
-    return {"status": status, "progress": 0, "step": "", "logs": []}
+    logs = storage.read_log_lines(meeting_id)
+    progress = 100 if status == "done" else (ASR_REAL_END if status == "asr_done" else 0)
+    return {"status": status, "progress": progress, "step": "", "logs": logs}
 
 
 def _log_cb(meeting_id: str):
@@ -96,6 +103,31 @@ def advance_asr_progress(task_id: str, elapsed_s: float) -> None:
     state["progress"] = max(state["progress"], fake_progress)
 
 
+def _fmt_dur(sec: float) -> str:
+    sec = int(round(sec))
+    if sec < 60:
+        return f"{sec}s"
+    m, s = divmod(sec, 60)
+    return f"{m}m{s}s"
+
+
+def _record_timing(meeting_id: str, stage: str, elapsed: float) -> None:
+    data = storage.get_meeting(meeting_id)
+    if not data:
+        return
+    timings = (data.get("meta") or {}).get("timings") or {}
+    timings[stage] = round(elapsed, 1)
+    storage.update_meta(meeting_id, timings=timings)
+
+
+def _log_stage_summary(meeting_id: str, title: str, *stages) -> None:
+    data = storage.get_meeting(meeting_id)
+    timings = (data.get("meta") or {}).get("timings") or {} if data else {}
+    parts = [f"{label} {_fmt_dur(timings.get(key, 0))}" for key, label in stages]
+    total = sum(timings.get(k, 0) for k, _ in stages)
+    append_log(meeting_id, "info", f"{title}: {' · '.join(parts)} · 共 {_fmt_dur(total)}")
+
+
 async def run_pipeline(meeting_id: str, cfg) -> None:
     async with _lock:
         task_id = None
@@ -112,6 +144,7 @@ async def run_pipeline(meeting_id: str, cfg) -> None:
             await _run_asr(task_id, meeting_id, cfg)
             storage.update_meta(meeting_id, status="asr_done")
             update(task_id, status="asr_done", progress=ASR_REAL_END, step="识别完成，待整理")
+            _log_stage_summary(meeting_id, "识别阶段完成", ("convert", "转换"), ("asr", "识别"))
         except Exception as e:
             storage.update_meta(meeting_id, status="error", error=str(e))
             update(task_id, status="error", error=str(e), step="失败")
@@ -124,14 +157,17 @@ async def _convert_audio(task_id, meeting_id, cfg) -> None:
     meta = storage.get_meeting(meeting_id)["meta"]
     src = mdir / meta["audio_file"]
     dst = mdir / "audio_wav.wav"
+    t0 = time.time()
     audio.convert_to_wav(str(src), str(dst))
+    convert_s = time.time() - t0
     duration_ms = audio.get_duration_ms(str(dst))
-    append_log(meeting_id, "info", f"音频转换完成: 时长 {duration_ms/1000:.0f}s")
+    append_log(meeting_id, "info", f"音频转换完成: 时长 {duration_ms/1000:.0f}s（耗时 {convert_s:.1f}s）")
     storage.update_meta(
         meeting_id,
         audio_wav="audio_wav.wav",
         duration_ms=duration_ms,
     )
+    _record_timing(meeting_id, "convert", convert_s)
     update(task_id, progress=CONVERT_END, started_at=time.time(),
            estimated_total_s=estimate_total_seconds(duration_ms))
 
@@ -150,13 +186,16 @@ async def _run_asr(task_id, meeting_id, cfg) -> None:
             advance_asr_progress(task_id, time.time() - start)
 
     ticker = asyncio.create_task(fake_ticker())
+    t0 = time.time()
     try:
         raw = await loop.run_in_executor(None, asr.transcribe, wav, cfg.asr, _log_cb(meeting_id))
     finally:
         stop_fake.set()
         await ticker
+    asr_s = time.time() - t0
     storage.save_raw(meeting_id, raw)
     storage.update_meta(meeting_id, spk_count=raw.get("spk_count", 0))
+    _record_timing(meeting_id, "asr", asr_s)
     update(task_id, progress=ASR_REAL_END)
 
 
@@ -172,8 +211,10 @@ async def _run_polish(task_id, meeting_id, cfg) -> None:
     loop = asyncio.get_event_loop()
     def on_prog(frac):
         update(task_id, progress=int(POLISH_START + frac * (POLISH_END - POLISH_START)))
+    t0 = time.time()
     md = await loop.run_in_executor(None, llm.polish, sentences, cfg.llm, _log_cb(meeting_id), on_prog, ctx, hint)
     storage.save_processed(meeting_id, md)
+    _record_timing(meeting_id, "polish", time.time() - t0)
     update(task_id, progress=POLISH_END)
 
 
@@ -185,6 +226,7 @@ async def _run_summarize(task_id, meeting_id, cfg) -> None:
     ctx = meta.get("meeting_context") or ""
     hint = _resolve_template_hint(meta.get("template") or "")
     loop = asyncio.get_event_loop()
+    t0 = time.time()
     result = await loop.run_in_executor(None, llm.summarize, processed, cfg.llm, _log_cb(meeting_id), ctx, hint)
     if isinstance(result, dict):
         storage.save_summary_json(meeting_id, result)
@@ -192,6 +234,7 @@ async def _run_summarize(task_id, meeting_id, cfg) -> None:
     else:
         storage.save_summary(meeting_id, result)
         storage.save_summary_json(meeting_id, None)
+    _record_timing(meeting_id, "summarize", time.time() - t0)
     update(task_id, progress=SUMMARY_END)
 
 
@@ -204,6 +247,8 @@ async def retry_llm(meeting_id: str, cfg) -> str:
             await _run_summarize(task_id, meeting_id, cfg)
             storage.update_meta(meeting_id, status="done", error=None)
             update(task_id, status="done", progress=100, step="完成")
+            _log_stage_summary(meeting_id, "整理完成",
+                               ("convert", "转换"), ("asr", "识别"), ("polish", "整理"), ("summarize", "总结"))
         except Exception as e:
             storage.update_meta(meeting_id, status="error", error=str(e))
             update(task_id, status="error", error=str(e))

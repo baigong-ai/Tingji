@@ -60,7 +60,7 @@ cd funasr
 cp config.yaml.example config.yaml
 # 确认 server.host 是 "0.0.0.0"（默认就是）
 
-bash scripts/download_models.sh   # 约 2.5GB，走 git，可靠
+bash scripts/download_models.sh   # 约 1.3GB，走 git，可靠
 ```
 
 ## 5. 装 CUDA 版 PyTorch
@@ -183,7 +183,7 @@ GPU 推理速度（实测 RTX 4060 Ti，81 分钟中文音频）：
 
 ### funasr 加载时卡在 "loading models"
 
-模型文件是 LFS pointer 没拉下来。`du -sh models/*` 看大小，paraformer-zh 应该接近 2GB。如果只有几 KB，`cd models/paraformer-zh && git lfs pull`。
+模型没下载完整。`du -sh models/*` 看大小，paraformer-zh 应该约 950MB。如果只有几 KB，重跑 `bash scripts/download_models.sh`。
 
 ### 局域网访问 404 / 超时
 

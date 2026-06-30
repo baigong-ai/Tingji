@@ -31,8 +31,8 @@ Built on [FunASR](https://github.com/modelscope/FunASR) (speech recognition + sp
 - Python 3.11, managed with [uv](https://github.com/astral-sh/uv)
 - ffmpeg (`brew install ffmpeg` on macOS; `sudo apt install ffmpeg` on Linux)
 - Git LFS (for pre-downloading models)
-- First launch downloads ~3–4 GB of FunASR models
-- Windows users: see the [WSL2 + GPU deployment guide](docs/wsl-deploy.md)
+- First launch downloads ~1.3 GB of FunASR models
+- Windows users: see the [WSL2 + GPU deployment guide](docs/wsl-deploy.en.md)
 
 ## Quick start
 
@@ -76,7 +76,7 @@ The core pipeline works: upload → recognition (with speaker diarization + time
 
 ## Pre-downloading models (recommended)
 
-FunASR needs 4 models (ASR / VAD / punctuation / speaker), ~3–4 GB total. Direct launch also works, but on macOS the uv-installed Python is temporarily signed and occasionally hits network limits. **Pre-downloading with `git clone` is more reliable** (git is Apple-signed and uses the system network path).
+FunASR needs 4 models (ASR / VAD / punctuation / speaker), ~1.3 GB total. Direct launch also works, but on macOS the uv-installed Python is temporarily signed and occasionally hits network limits. **Pre-downloading with `git clone` is more reliable** (git is Apple-signed and uses the system network path).
 
 ```bash
 bash scripts/download_models.sh          # downloads to ./models/ by default

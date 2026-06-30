@@ -57,3 +57,15 @@ def test_delete_meeting(data_dir):
     storage.delete_meeting(mid)
     assert not (data_dir / mid).exists()
     assert storage.get_meeting(mid) is None
+
+
+def test_log_persistence(data_dir):
+    src = data_dir.parent / "a.wav"
+    src.write_bytes(b"x")
+    mid = storage.create_meeting("t", str(src), "wav")
+    storage.append_log_line(mid, {"ts": 1.0, "level": "info", "msg": "hello"})
+    storage.append_log_line(mid, {"ts": 2.0, "level": "warn", "msg": "again"})
+    logs = storage.read_log_lines(mid)
+    assert len(logs) == 2
+    assert logs[0]["msg"] == "hello"
+    assert logs[1]["level"] == "warn"

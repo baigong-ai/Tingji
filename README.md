@@ -31,7 +31,7 @@
 - Python 3.11，用 [uv](https://github.com/astral-sh/uv) 管理
 - ffmpeg（macOS：`brew install ffmpeg`；Linux：`sudo apt install ffmpeg`）
 - Git LFS（用于预下载模型）
-- 首次启动会下载约 3–4 GB FunASR 模型
+- 首次启动会下载约 1.3 GB FunASR 模型
 - Windows 用户请看 [WSL2 + GPU 部署指南](docs/wsl-deploy.md)
 
 ## 快速开始
@@ -76,7 +76,7 @@ bash scripts/download_models.sh   # 预下载模型（推荐）
 
 ## 预下载模型（推荐）
 
-FunASR 需要 4 个模型（ASR / VAD / 标点 / 说话人），共约 3–4 GB。直接启动也能自动下载，但 macOS 上 uv 装的 Python 是临时签名，偶发网络受限。**启动前用 `git clone` 预下载更稳**（git 是 Apple 签名，走系统网络）。
+FunASR 需要 4 个模型（ASR / VAD / 标点 / 说话人），共约 1.3 GB。直接启动也能自动下载，但 macOS 上 uv 装的 Python 是临时签名，偶发网络受限。**启动前用 `git clone` 预下载更稳**（git 是 Apple 签名，走系统网络）。
 
 ```bash
 bash scripts/download_models.sh          # 默认下载到 ./models/

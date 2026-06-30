@@ -32,6 +32,7 @@ clone_one() {
   echo "  from: $url"
   rm -rf "$MODELS_DIR/$dest"
   git clone --depth 1 "$url" "$MODELS_DIR/$dest"
+  rm -rf "$MODELS_DIR/$dest/.git"   # drop LFS object cache, ~50% of cloned size
   echo "[ok] $dest ($(du -sh "$MODELS_DIR/$dest" | cut -f1))"
   echo
 }
