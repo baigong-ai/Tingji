@@ -133,9 +133,12 @@ llm:
 
 ### Model selection
 
-Pick based on your hardware. NVIDIA GPU with enough VRAM → a larger gguf like `Qwen3:8b`, fast polish and summary. Limited VRAM/memory or CPU-only → a smaller `qwen2.5:7b`, or just use an API (GLM, DeepSeek, Qwen); small local models are slow on CPU for long audio. On Apple Silicon, gguf works fine; `*-mlx` quantization is slow and memory-hungry on some Macs, so test with a short clip first.
+Pick based on your hardware and preference — this doc doesn't pick for you, just lists what's been tested:
 
-gguf is the default recommendation (`Qwen3:8b`, `qwen2.5`). Qwen3's thinking is disabled in code, otherwise it's very slow.
+- **Local Ollama**: `Qwen3:8b` (gguf; tested on WSL + RTX 4060 Ti and Mac mini M4)
+- **API (OpenAI-compatible)**: GLM, DeepSeek
+
+Qwen3's thinking is disabled in code (`/no_think`), otherwise it's very slow.
 
 ## Performance
 
