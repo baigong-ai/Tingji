@@ -4,7 +4,7 @@ English | [中文](README.md)
 
 > Local meeting transcription and minutes — drop in a recording and get the raw transcript, a cleaned-up transcript, and meeting minutes. All data stays on your own machine.
 
-<!-- ![Home](docs/screenshot-home.png) -->
+![Home](docs/screenshot-home.png)
 
 Built on [FunASR](https://github.com/modelscope/FunASR) (speech recognition + speaker diarization + punctuation) and an LLM for cleanup. Great for long-form audio — meetings, interviews, lectures. Cross-platform (macOS / Windows WSL2 + GPU); recognition runs offline.
 
@@ -23,7 +23,7 @@ Built on [FunASR](https://github.com/modelscope/FunASR) (speech recognition + sp
 - **Export** `.md` / `.txt` / `.srt` (md export uses real speaker names)
 - **Runs locally** — recordings and results never leave your machine
 
-<!-- ![Detail page](docs/screenshot-detail.png) -->
+![Detail page](docs/screenshot-detail.png)
 
 ## A quick look
 
@@ -32,12 +32,18 @@ Around a single recording, Tingji gives you four things:
 **Automatic speaker diarization + talk-time timeline.** A colored bar at the top shows each speaker's share of total talk time — who talked more at a glance. Rename to real names, synced across all views and exports.
 
 **Per-sentence timestamps, double-click to fix.** Click any sentence to seek the audio; the current sentence auto-highlights and scrolls during playback. Double-click to correct a misrecognition, optionally adding it as a hotword for next time.
+![Raw tab: current sentence highlighted, double-click to edit](docs/screenshot-edit.png)
 
 **Structured minutes in four parts.** The summary is split into Overview / Decisions / Action items / Open questions — clearer than a wall of Markdown. Falls back to plain text if the model doesn't return strict JSON; still usable.
+![Summary tab](docs/screenshot-summary.png)
 
 **Raw ↔ polished compare.** Side-by-side columns aligned by timestamp; hover highlights, click seeks, playback stays in sync. Quick to spot when the LLM has subtly changed the meaning.
+![Compare tab](docs/screenshot-compare.png)
 
-Before polishing you can pick a summary template (General / Weekly / Interview / Project, all customizable) — the dialog asks for the template plus any meeting background and terminology. Per-stage processing time is logged (total shown in the detail-page header) and persisted, so history survives a restart.
+Before polishing you can pick a summary template (General / Weekly / Interview / Project, all customizable) — the dialog asks for the template plus any meeting background and terminology.
+![Settings → Summary templates](docs/screenshot-template.png)
+
+Per-stage processing time is logged (total shown in the detail-page header) and persisted, so history survives a restart.
 
 ## Requirements
 
