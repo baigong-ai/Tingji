@@ -25,6 +25,20 @@ Built on [FunASR](https://github.com/modelscope/FunASR) (speech recognition + sp
 
 <!-- ![Detail page](docs/screenshot-detail.png) -->
 
+## A quick look
+
+Around a single recording, Tingji gives you four things:
+
+**Automatic speaker diarization + talk-time timeline.** A colored bar at the top shows each speaker's share of total talk time — who talked more at a glance. Rename to real names, synced across all views and exports.
+
+**Per-sentence timestamps, double-click to fix.** Click any sentence to seek the audio; the current sentence auto-highlights and scrolls during playback. Double-click to correct a misrecognition, optionally adding it as a hotword for next time.
+
+**Structured minutes in four parts.** The summary is split into Overview / Decisions / Action items / Open questions — clearer than a wall of Markdown. Falls back to plain text if the model doesn't return strict JSON; still usable.
+
+**Raw ↔ polished compare.** Side-by-side columns aligned by timestamp; hover highlights, click seeks, playback stays in sync. Quick to spot when the LLM has subtly changed the meaning.
+
+Before polishing you can pick a summary template (General / Weekly / Interview / Project, all customizable) — the dialog asks for the template plus any meeting background and terminology. Per-stage processing time is logged (total shown in the detail-page header) and persisted, so history survives a restart.
+
 ## Requirements
 
 - macOS / Linux / Windows (WSL2)
