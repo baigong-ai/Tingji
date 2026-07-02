@@ -1,5 +1,6 @@
 import io
 import json
+import time
 from unittest import mock
 
 import pytest
@@ -186,3 +187,145 @@ def test_hotwords_dedup(client):
     assert r.json()["count"] == 3 and r.json()["duplicates"] == 2
     got = client.get("/api/settings/hotwords").json()["hotwords"]
     assert got == ["a", "b", "c"]
+
+
+# --- ASR status / unload ---
+def test_asr_status(client):
+    d = client.get("/api/asr/status").json()
+    assert "loaded" in d and "rss_mb" in d and "idle_unload_minutes" in d
+
+
+def test_asr_unload_when_idle(client, monkeypatch):
+    main.tasks._tasks.clear()
+    monkeypatch.setattr(main.asr, "_model", object())
+    monkeypatch.setattr(main.asr, "_busy", False)
+    r = client.post("/api/asr/unload")
+    assert r.status_code == 200
+    assert r.json()["unloaded"] is True
+
+
+def test_asr_unload_refused_when_busy(client, monkeypatch):
+    monkeypatch.setattr(main.asr, "_model", object())
+    monkeypatch.setattr(main.asr, "_busy", True)
+    assert client.post("/api/asr/unload").status_code == 409
+
+
+def test_asr_unload_refused_when_task_pending(client, monkeypatch):
+    monkeypatch.setattr(main.asr, "_model", object())
+    monkeypatch.setattr(main.asr, "_busy", False)
+    main.tasks._tasks["t1"] = {"status": "asr_running"}
+    try:
+        assert client.post("/api/asr/unload").status_code == 409
+    finally:
+        main.tasks._tasks.clear()
+
+
+# --- port check / server settings ---
+def test_port_check_free(client):
+    import socket as _s
+    sk = _s.socket(_s.AF_INET, _s.SOCK_STREAM)
+    sk.bind(("0.0.0.0", 0))
+    free_port = sk.getsockname()[1]
+    sk.close()
+    d = client.post("/api/settings/server/check", json={"port": free_port, "host": "0.0.0.0"}).json()
+    assert d["ok"] is True and d["self"] is False
+
+
+def test_port_check_conflict(client):
+    import socket as _s
+    sk = _s.socket(_s.AF_INET, _s.SOCK_STREAM)
+    sk.setsockopt(_s.SOL_SOCKET, _s.SO_REUSEADDR, 0)
+    sk.bind(("0.0.0.0", 0))
+    sk.listen(1)
+    held_port = sk.getsockname()[1]
+    try:
+        d = client.post("/api/settings/server/check", json={"port": held_port, "host": "0.0.0.0"}).json()
+        assert d["ok"] is False
+    finally:
+        sk.close()
+
+
+def test_port_check_self(client):
+    d = client.post("/api/settings/server/check", json={"port": main._RUNNING_PORT, "host": "0.0.0.0"}).json()
+    assert d["ok"] is True and d["self"] is True
+
+
+def test_port_check_rejects_invalid(client):
+    assert client.post("/api/settings/server/check", json={"port": 0}).status_code == 400
+    assert client.post("/api/settings/server/check", json={"port": 70000}).status_code == 400
+
+
+def test_server_settings_roundtrip(client, monkeypatch):
+    monkeypatch.setattr(main, "_persist_server_config", lambda *a, **kw: None)
+    prev = (main.config.server.host, main.config.server.port, main.config.asr.idle_unload_minutes)
+    try:
+        r = client.post("/api/settings/server", json={
+            "port": 9999, "host": "127.0.0.1", "idle_unload_minutes": 5})
+        assert r.status_code == 200
+        d = r.json()
+        assert d["ok"] and d["restart_required"] is True  # 9999 != running port
+        assert main.config.server.port == 9999
+        assert main.config.asr.idle_unload_minutes == 5
+        got = client.get("/api/settings/server").json()
+        assert got["port"] == 9999 and got["running_port"] == main._RUNNING_PORT
+    finally:
+        main.config.server.host, main.config.server.port = prev[0], prev[1]
+        main.config.asr.idle_unload_minutes = prev[2]
+
+
+# --- idle watcher decision logic ---
+def test_idle_check_unloads_when_idle(client, monkeypatch):
+    main.tasks._tasks.clear()
+    monkeypatch.setattr(main.asr, "_model", object())
+    monkeypatch.setattr(main.asr, "_busy", False)
+    monkeypatch.setattr(main.asr, "_last_used", time.time() - 1000)
+    assert main._idle_check(60) is True
+    assert not main.asr.is_loaded()
+
+
+def test_idle_check_skips_when_below_threshold(client, monkeypatch):
+    main.tasks._tasks.clear()
+    monkeypatch.setattr(main.asr, "_model", object())
+    monkeypatch.setattr(main.asr, "_busy", False)
+    monkeypatch.setattr(main.asr, "_last_used", time.time())
+    assert main._idle_check(3600) is False
+    assert main.asr.is_loaded()
+
+
+def test_idle_check_skips_when_task_active(client, monkeypatch):
+    monkeypatch.setattr(main.asr, "_model", object())
+    monkeypatch.setattr(main.asr, "_busy", False)
+    monkeypatch.setattr(main.asr, "_last_used", time.time() - 1000)
+    main.tasks._tasks["t"] = {"status": "asr_running"}
+    try:
+        assert main._idle_check(60) is False
+        assert main.asr.is_loaded()
+    finally:
+        main.tasks._tasks.clear()
+
+
+def test_idle_watcher_loop_unloads(client, monkeypatch):
+    """Full wiring: watcher task → _idle_check → unload_model, in a real loop."""
+    import asyncio as _a
+    main.tasks._tasks.clear()
+    monkeypatch.setattr(main.asr, "_model", object())
+    monkeypatch.setattr(main.asr, "_busy", False)
+    monkeypatch.setattr(main.asr, "_last_used", time.time() - 1000)
+    monkeypatch.setattr(main, "_WATCHER_TICK_S", 0.05)
+    monkeypatch.setattr(main, "_idle_unload_seconds", lambda: 60)
+
+    async def go():
+        task = _a.create_task(main._idle_watcher())
+        for _ in range(20):  # wait up to ~1s for the watcher to fire
+            if not main.asr.is_loaded():
+                task.cancel()
+                break
+            await _a.sleep(0.05)
+        else:
+            task.cancel()
+        try:
+            await task
+        except _a.CancelledError:
+            pass
+    _a.run(go())
+    assert not main.asr.is_loaded(), "watcher should have unloaded the model"

@@ -6,7 +6,10 @@ import platform
 import re
 import shutil
 import socket
+import subprocess
+import time
 import urllib.request
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import yaml
@@ -37,10 +40,76 @@ config: Config = load_config(str(CONFIG_PATH)) if CONFIG_PATH.exists() else None
 if config is not None:
     storage.set_data_dir(config.storage.data_dir)
 
+# Capture the port/host actually bound by uvicorn at startup. config.server
+# may be mutated later by /api/settings/server; this stays the source of truth
+# for "what's running right now".
+_RUNNING_PORT = config.server.port if config else 8000
+_RUNNING_HOST = config.server.host if config else "0.0.0.0"
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
 
-app = FastAPI(title="FunASR Meeting Transcription")
+# Active pipeline statuses — idle watcher won't unload while any is in flight.
+_BUSY_STATUSES = {"pending", "converting", "asr_running",
+                  "llm_polishing", "llm_summarizing"}
+
+
+def _idle_unload_seconds() -> int:
+    """Idle threshold before ASR model unload. 0 = disabled."""
+    if config is None:
+        return 30 * 60
+    return max(int(getattr(config.asr, "idle_unload_minutes", 30)), 0) * 60
+
+
+# How often the idle watcher wakes. Module constant (not a config knob) so the
+# integration test can shorten it; 60s is the production cadence.
+_WATCHER_TICK_S = 60
+
+
+async def _idle_watcher():
+    """Unload the FunASR model when idle, to free RAM while resident.
+
+    Re-reads the threshold each tick so live config changes (via
+    /api/settings/server) take effect without restart.
+    """
+    log.info("idle watcher started (tick=%ds, re-reads threshold each tick)", _WATCHER_TICK_S)
+    while True:
+        await asyncio.sleep(_WATCHER_TICK_S)
+        threshold = _idle_unload_seconds()
+        if threshold <= 0:
+            continue
+        _idle_check(threshold)
+
+
+def _idle_check(threshold_s: int) -> bool:
+    """One pass of the idle-unload decision. Returns True if unloaded."""
+    if not asr.is_loaded() or asr.is_busy():
+        return False
+    # Don't unload while a pipeline task is queued or running — the model
+    # may be needed any moment.
+    if any(st.get("status") in _BUSY_STATUSES for st in tasks._tasks.values()):
+        return False
+    idle = time.time() - asr.last_used_at()
+    if idle >= threshold_s:
+        log.info("idle %.0fs ≥ %ds, unloading ASR model", idle, threshold_s)
+        return asr.unload_model()
+    return False
+
+
+@asynccontextmanager
+async def lifespan(app):
+    watcher = asyncio.create_task(_idle_watcher())
+    try:
+        yield
+    finally:
+        watcher.cancel()
+        try:
+            await watcher
+        except asyncio.CancelledError:
+            pass
+
+
+app = FastAPI(title="FunASR Meeting Transcription", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 ALLOWED_AUDIO_EXTS = {"wav", "mp3", "m4a", "aac", "flac", "ogg", "opus", "webm"}
@@ -348,8 +417,8 @@ def _detect_platform() -> dict:
 
 
 def _collect_server_info() -> dict:
-    host = config.server.host if config else "0.0.0.0"
-    port = config.server.port if config else 8000
+    host = _RUNNING_HOST
+    port = _RUNNING_PORT
     ips = _lan_ipv4s()
     urls = []
     if host in ("0.0.0.0", "::", ""):
@@ -394,6 +463,117 @@ def _lan_ipv4s() -> list[str]:
     except Exception:
         pass
     return out
+
+
+def _running_port() -> int:
+    return _RUNNING_PORT
+
+
+def _who_uses_port(port: int) -> str | None:
+    try:
+        out = subprocess.run(
+            ["lsof", "-iTCP:%d" % port, "-sTCP:LISTEN", "-n", "-P"],
+            capture_output=True, text=True, timeout=3,
+        )
+        lines = [l for l in out.stdout.splitlines()[1:] if l.strip()]
+        return "\n".join(lines[:5]) if lines else None
+    except Exception:
+        return None
+
+
+@app.get("/api/asr/status")
+async def asr_status():
+    s = asr.status()
+    last = s["last_used_at"]
+    idle = (time.time() - last) if last else 0.0
+    return {
+        **s,
+        "idle_seconds": round(idle, 0),
+        "idle_unload_minutes": int(getattr(config.asr, "idle_unload_minutes", 30)) if config else 30,
+    }
+
+
+@app.post("/api/asr/unload")
+async def asr_unload():
+    if asr.is_busy():
+        raise HTTPException(409, "识别进行中，无法卸载")
+    if any(st.get("status") in _BUSY_STATUSES for st in tasks._tasks.values()):
+        raise HTTPException(409, "有任务排队/进行中，无法卸载")
+    freed = asr.unload_model()
+    return {"unloaded": freed, "status": asr.status()}
+
+
+@app.get("/api/settings/server")
+async def get_server_settings():
+    host = config.server.host if config else "0.0.0.0"
+    port = config.server.port if config else 8000
+    return {
+        "host": host, "port": port,
+        "running_port": _running_port(),
+        "idle_unload_minutes": int(getattr(config.asr, "idle_unload_minutes", 30)) if config else 30,
+        "restart_required": False,
+    }
+
+
+@app.post("/api/settings/server/check")
+async def check_server_port(payload: dict):
+    try:
+        port = int(payload.get("port"))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "端口需为整数")
+    if not (1 <= port <= 65535):
+        raise HTTPException(400, "端口须在 1-65535")
+    host = (payload.get("host") or "0.0.0.0").strip() or "0.0.0.0"
+    # Same port as the running server = us holding it.
+    if port == _running_port():
+        return {"ok": True, "port": port, "self": True, "note": "当前服务端口（即本服务自身）"}
+    bind_host = "0.0.0.0" if host in ("0.0.0.0", "::") else host
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
+            s.bind((bind_host, port))
+        return {"ok": True, "port": port, "self": False}
+    except OSError as e:
+        return {"ok": False, "port": port, "self": False,
+                "error": str(e), "who": _who_uses_port(port)}
+
+
+@app.post("/api/settings/server")
+async def set_server_settings(payload: dict):
+    if config is None:
+        raise HTTPException(500, "config not loaded")
+    try:
+        port = int(payload.get("port"))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "端口需为整数")
+    if not (1 <= port <= 65535):
+        raise HTTPException(400, "端口须在 1-65535")
+    host = (payload.get("host") or config.server.host).strip() or "0.0.0.0"
+    idle_min = payload.get("idle_unload_minutes")
+    config.server.host = host
+    config.server.port = port
+    if idle_min is not None:
+        try:
+            config.asr.idle_unload_minutes = max(int(idle_min), 0)
+        except (TypeError, ValueError):
+            pass
+    _persist_server_config(host, port, config.asr.idle_unload_minutes)
+    return {
+        "ok": True, "host": host, "port": port,
+        "running_port": _running_port(),
+        "restart_required": port != _running_port(),
+    }
+
+
+def _persist_server_config(host: str, port: int, idle_min: int) -> None:
+    p = Path("config.yaml")
+    if not p.exists():
+        return
+    raw = yaml.safe_load(p.read_text()) or {}
+    raw.setdefault("server", {})["host"] = host
+    raw["server"]["port"] = port
+    raw.setdefault("asr", {})["idle_unload_minutes"] = idle_min
+    p.write_text(yaml.safe_dump(raw, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
 
 @app.get("/api/meetings/{meeting_id}")

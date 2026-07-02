@@ -156,6 +156,7 @@ document.querySelectorAll('.stab').forEach(btn => {
     if (btn.dataset.stab === 'llm') loadLLM();
     if (btn.dataset.stab === 'hotwords') loadHotwords();
     if (btn.dataset.stab === 'templates') loadTemplates();
+    if (btn.dataset.stab === 'server') { loadAsrStatus(); loadServer(); }
   });
 });
 
@@ -410,6 +411,94 @@ async function loadOnboard() {
     document.getElementById('ob-default').addEventListener('click', () => { localStorage.setItem('onboarded', '1'); bar.classList.add('hidden'); });
   } catch {}
 }
+
+// --- ASR 模型状态 + 端口/服务 ---
+async function loadAsrStatus() {
+  const line = document.getElementById('asr-status-line');
+  const res = document.getElementById('asr-result');
+  res.textContent = '';
+  try {
+    const s = await fetch('/api/asr/status').then(r => r.json());
+    const state = s.busy ? '识别中' : (s.loaded ? '已加载（空闲）' : '未加载');
+    const last = s.last_used_at ? new Date(s.last_used_at * 1000).toLocaleString('zh-CN') : '—';
+    const idle = s.last_used_at ? `${Math.round(s.idle_seconds / 60)} 分钟` : '—';
+    line.innerHTML = `状态: <b>${state}</b> · 进程内存: ${s.rss_mb}MB · 最后使用: ${last} · 空闲: ${idle}` +
+      (s.loaded ? ` · ${s.idle_unload_minutes} 分钟后自动卸载` : '');
+  } catch (e) { line.textContent = '加载失败: ' + e.message; }
+}
+document.getElementById('asr-refresh-btn').addEventListener('click', loadAsrStatus);
+document.getElementById('asr-unload-btn').addEventListener('click', async () => {
+  const res = document.getElementById('asr-result');
+  res.textContent = '释放中...';
+  try {
+    const r = await fetch('/api/asr/unload', { method: 'POST' });
+    const d = await r.json();
+    if (r.ok) {
+      res.textContent = d.unloaded ? '已卸载，模型从内存释放' : '模型本就未加载';
+      loadAsrStatus();
+    } else {
+      res.textContent = '错误: ' + (d.detail || '未知错误');
+    }
+  } catch (e) { res.textContent = '失败: ' + e.message; }
+});
+
+async function loadServer() {
+  try {
+    const d = await fetch('/api/settings/server').then(r => r.json());
+    document.getElementById('srv-host').value = d.host;
+    document.getElementById('srv-port').value = d.port;
+    document.getElementById('srv-idle').value = d.idle_unload_minutes;
+    document.getElementById('srv-result').textContent =
+      d.port !== d.running_port ? `（当前实际运行端口: ${d.running_port}，需重启生效）` : '';
+  } catch (e) { document.getElementById('srv-result').textContent = '加载失败: ' + e.message; }
+}
+document.getElementById('srv-check-btn').addEventListener('click', async () => {
+  const res = document.getElementById('srv-result');
+  const port = parseInt(document.getElementById('srv-port').value, 10);
+  const host = document.getElementById('srv-host').value.trim();
+  if (!port || port < 1 || port > 65535) { res.textContent = '端口须在 1-65535'; return; }
+  res.textContent = '检测中...';
+  try {
+    const r = await fetch('/api/settings/server/check', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ port, host }),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      res.textContent = d.self ? `端口 ${port}：当前服务自身在用，保存后无需重启` : `端口 ${port}：空闲可用`;
+      res.style.color = '#15803d';
+    } else {
+      let msg = `端口 ${port}：被占用`;
+      if (d.who) msg += `\n${d.who}`;
+      res.textContent = msg;
+      res.style.color = '#b91c1c';
+    }
+  } catch (e) { res.textContent = '检测失败: ' + e.message; }
+});
+document.getElementById('srv-save-btn').addEventListener('click', async () => {
+  const res = document.getElementById('srv-result');
+  const port = parseInt(document.getElementById('srv-port').value, 10);
+  const host = document.getElementById('srv-host').value.trim() || '0.0.0.0';
+  const idle = parseInt(document.getElementById('srv-idle').value, 10);
+  if (!port || port < 1 || port > 65535) { res.textContent = '端口须在 1-65535'; return; }
+  try {
+    const r = await fetch('/api/settings/server', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ port, host, idle_unload_minutes: idle }),
+    });
+    const d = await r.json();
+    if (r.ok) {
+      res.style.color = '#15803d';
+      res.textContent = d.restart_required
+        ? `已保存。端口/host 改动需重启服务生效（当前仍运行在 ${d.running_port}）`
+        : '已保存';
+      loadAsrStatus();
+    } else {
+      res.style.color = '#b91c1c';
+      res.textContent = '错误: ' + (d.detail || '保存失败');
+    }
+  } catch (e) { res.textContent = '保存失败: ' + e.message; }
+});
 
 loadHistory();
 loadOnboard();

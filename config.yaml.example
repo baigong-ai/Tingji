@@ -4,6 +4,7 @@ asr:
   batch_size_s: 300
   batch_size_threshold_s: 60
   hotword: ""
+  idle_unload_minutes: 30
 
 llm:
   mode: api

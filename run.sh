@@ -3,6 +3,74 @@ set -euo pipefail
 cd "$(dirname "$0")"
 export PATH="$HOME/.local/bin:$PATH"
 
+PID_FILE="logs/tingji.pid"
+LOG_FILE="logs/tingji.out"
+
+usage() {
+  cat <<EOF
+用法:
+  ./run.sh              前台运行（默认）
+  ./run.sh -d|--daemon  后台运行（脱离终端，PID 写入 ${PID_FILE}，输出写入 ${LOG_FILE}）
+  ./run.sh --stop       停止后台进程
+  ./run.sh --status     查看后台进程状态
+  ./run.sh -h|--help    显示本帮助
+EOF
+}
+
+ACTION="foreground"
+case "${1:-}" in
+  -d|--daemon) ACTION="daemon" ;;
+  --stop)      ACTION="stop" ;;
+  --status)    ACTION="status" ;;
+  -h|--help)   usage; exit 0 ;;
+  "")          ;;
+  *) echo "未知参数: $1"; usage; exit 1 ;;
+esac
+
+read_running_pid() {
+  [ -f "$PID_FILE" ] || { echo ""; return; }
+  local pid
+  pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    echo "$pid"
+  else
+    echo ""
+  fi
+}
+
+if [ "$ACTION" = "status" ]; then
+  pid="$(read_running_pid)"
+  if [ -n "$pid" ]; then
+    echo "运行中: PID ${pid}（日志: ${LOG_FILE}）"
+    exit 0
+  fi
+  echo "未运行"
+  exit 0
+fi
+
+if [ "$ACTION" = "stop" ]; then
+  pid="$(read_running_pid)"
+  if [ -z "$pid" ]; then
+    echo "未运行（或 $PID_FILE 已失效）"
+    rm -f "$PID_FILE"
+    exit 0
+  fi
+  echo "停止 PID $pid ..."
+  kill "$pid" 2>/dev/null || true
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.3
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "未在 3s 内退出，发送 SIGKILL"
+    kill -9 "$pid" 2>/dev/null || true
+  fi
+  rm -f "$PID_FILE"
+  echo "已停止"
+  exit 0
+fi
+
+# foreground or daemon — both need the env setup below
 if ! command -v ffmpeg >/dev/null 2>&1; then
   echo "需要先安装 ffmpeg (macOS: brew install ffmpeg / Linux: sudo apt install ffmpeg)"
   exit 1
@@ -29,29 +97,63 @@ if grep -q 'mode: api' config.yaml && [ -z "${LLM_API_KEY:-}" ]; then
   echo "警告：LLM_API_KEY 未设置，LLM 整理/总结将不可用"
 fi
 
-echo "启动服务，监听 ${HOST}:${PORT}"
-if [ "$HOST" = "0.0.0.0" ] || [ "$HOST" = "::" ]; then
-  echo "可访问地址："
-  echo "  本机:    http://127.0.0.1:${PORT}"
-  if command -v ipconfig >/dev/null 2>&1; then
-    for iface in en0 en1 eth0 eth1; do
-      ip=$(ipconfig getifaddr "$iface" 2>/dev/null || true)
-      if [ -n "$ip" ]; then
-        echo "  局域网:  http://${ip}:${PORT}  (${iface})"
-      fi
-    done
-  elif command -v ip >/dev/null 2>&1; then
-    ip -4 addr 2>/dev/null \
-      | awk '/inet / && $2 !~ /^127/ {split($2, a, "/"); print a[1]}' \
-      | sort -u \
-      | while read -r ip; do
-          echo "  局域网:  http://${ip}:${PORT}"
-        done
-  fi
-  if command -v hostname >/dev/null 2>&1; then
-    echo "  主机名:  http://$(hostname):${PORT}"
-  fi
-else
-  echo "可访问地址: http://${HOST}:${PORT}"
+# Refuse to start a second daemon if one is already running.
+pid="$(read_running_pid)"
+if [ -n "$pid" ]; then
+  echo "已有后台进程在运行: PID ${pid}（先 ./run.sh --stop 再启动）"
+  exit 1
 fi
-exec uvicorn app.main:app --host "$HOST" --port "$PORT"
+
+print_urls() {
+  if [ "$HOST" = "0.0.0.0" ] || [ "$HOST" = "::" ]; then
+    echo "可访问地址："
+    echo "  本机:    http://127.0.0.1:${PORT}"
+    if command -v ipconfig >/dev/null 2>&1; then
+      for iface in en0 en1 eth0 eth1; do
+        ip=$(ipconfig getifaddr "$iface" 2>/dev/null || true)
+        if [ -n "$ip" ]; then
+          echo "  局域网:  http://${ip}:${PORT}  (${iface})"
+        fi
+      done
+    elif command -v ip >/dev/null 2>&1; then
+      ip -4 addr 2>/dev/null \
+        | awk '/inet / && $2 !~ /^127/ {split($2, a, "/"); print a[1]}' \
+        | sort -u \
+        | while read -r ip; do
+            echo "  局域网:  http://${ip}:${PORT}"
+          done
+    fi
+    if command -v hostname >/dev/null 2>&1; then
+      echo "  主机名:  http://$(hostname):${PORT}"
+    fi
+  else
+    echo "可访问地址: http://${HOST}:${PORT}"
+  fi
+}
+
+if [ "$ACTION" = "daemon" ]; then
+  mkdir -p logs
+  echo "后台启动服务，监听 ${HOST}:${PORT}（PID → ${PID_FILE}，日志 → ${LOG_FILE}）"
+  # nohup + disown: SIGHUP ignored, survives terminal close. (setsid is not
+  # in stock macOS, nohup is.)
+  nohup .venv/bin/uvicorn app.main:app --host "$HOST" --port "$PORT" \
+    >"$LOG_FILE" 2>&1 < /dev/null &
+  DAEMON_PID=$!
+  echo "$DAEMON_PID" > "$PID_FILE"
+  disown 2>/dev/null || true
+  sleep 1
+  if kill -0 "$DAEMON_PID" 2>/dev/null; then
+    echo "已启动: PID ${DAEMON_PID}"
+    print_urls
+  else
+    echo "启动失败，最近日志:"
+    tail -20 "$LOG_FILE" 2>/dev/null || true
+    rm -f "$PID_FILE"
+    exit 1
+  fi
+  exit 0
+fi
+
+echo "启动服务，监听 ${HOST}:${PORT}"
+print_urls
+exec .venv/bin/uvicorn app.main:app --host "$HOST" --port "$PORT"

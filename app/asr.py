@@ -1,5 +1,8 @@
+import gc
 import logging
 import os
+import subprocess
+import sys
 import time
 from pathlib import Path
 from threading import Lock
@@ -10,6 +13,8 @@ log = logging.getLogger(__name__)
 
 _model = None
 _lock = Lock()
+_last_used = 0.0  # epoch seconds of last ASR activity (start or finish)
+_busy = False     # True while a transcription is in flight
 
 _LOCAL_DIR_NAMES = {
     "paraformer-zh": "paraformer-zh",
@@ -26,6 +31,90 @@ def _resolve_model(alias: str, cache_dir: str) -> str:
         return str(local)
     log.info("using alias (will auto-download if missing): %s", alias)
     return alias
+
+
+def is_loaded() -> bool:
+    return _model is not None
+
+
+def is_busy() -> bool:
+    return _busy
+
+
+def last_used_at() -> float:
+    return _last_used
+
+
+def mark_used() -> None:
+    global _last_used
+    _last_used = time.time()
+
+
+def _rss_mb() -> int:
+    """Current process RSS in MB (not peak — peak via getrusage never drops)."""
+    try:
+        out = subprocess.run(
+            ["ps", "-o", "rss=", "-p", str(os.getpid())],
+            capture_output=True, text=True, timeout=2,
+        )
+        return int(out.stdout.strip()) // 1024
+    except Exception:
+        return 0
+
+
+def _release_os_memory() -> None:
+    """Best-effort: nudge the allocator to return freed pages to the OS.
+
+    Without this, freed model objects leave resident pages (especially on
+    macOS, where the default allocator doesn't proactively release). On
+    Linux/glibc, malloc_trim(0) returns most of them.
+    """
+    try:
+        import ctypes
+        if sys.platform == "darwin":
+            ctypes.CDLL("libc.dylib").malloc_zone_pressure_relief(None, 0)
+        elif hasattr(ctypes, "CDLL"):
+            ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        pass
+
+
+def unload_model() -> bool:
+    """Release the loaded FunASR model. Returns True if freed.
+
+    Refuses while a transcription is in flight (_busy). Best-effort GC +
+    torch cache clear afterwards so RSS actually drops.
+    """
+    global _model
+    if _model is None:
+        return False
+    if _busy:
+        log.info("unload skipped: transcription in flight")
+        return False
+    with _lock:
+        if _model is None:
+            return False
+        _model = None
+    gc.collect()
+    gc.collect()
+    _release_os_memory()
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
+    log.info("FunASR models unloaded (idle), RSS≈%dMB", _rss_mb())
+    return True
+
+
+def status() -> dict:
+    return {
+        "loaded": _model is not None,
+        "busy": _busy,
+        "last_used_at": _last_used,
+        "rss_mb": _rss_mb(),
+    }
 
 
 def get_model(cfg: ASRConfig):
@@ -77,12 +166,14 @@ def _load_hotword_str() -> str | None:
 
 
 def transcribe(wav_path: str, cfg: ASRConfig, on_log=None) -> dict:
+    global _busy
     def _log(level, msg):
         if on_log:
             try:
                 on_log(level, msg)
             except Exception:
                 pass
+    mark_used()
     _log("info", "准备 ASR 模型（首次加载较慢）...")
     model = get_model(cfg)
     try:
@@ -99,13 +190,18 @@ def transcribe(wav_path: str, cfg: ASRConfig, on_log=None) -> dict:
     hotword = _load_hotword_str() or cfg.hotword or None
     _log("info", "开始语音识别 ...")
     t0 = time.time()
-    res = model.generate(
-        input=wav_path,
-        batch_size_s=cfg.batch_size_s,
-        batch_size_threshold_s=cfg.batch_size_threshold_s,
-        sentence_timestamp=True,
-        hotword=hotword,
-    )
+    _busy = True
+    try:
+        res = model.generate(
+            input=wav_path,
+            batch_size_s=cfg.batch_size_s,
+            batch_size_threshold_s=cfg.batch_size_threshold_s,
+            sentence_timestamp=True,
+            hotword=hotword,
+        )
+    finally:
+        _busy = False
+        mark_used()
     out = normalize(res)
     _log("info", f"识别完成: {len(out['sentences'])} 句, {out['spk_count']} 位说话人 ({time.time()-t0:.1f}s)")
     return out

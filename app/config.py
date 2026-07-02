@@ -39,6 +39,7 @@ class ASRConfig:
     batch_size_s: int
     batch_size_threshold_s: int
     hotword: str
+    idle_unload_minutes: int = 30
 
 
 @dataclass

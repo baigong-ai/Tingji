@@ -7,7 +7,7 @@ uv pip install -e ".[dev]"
 pytest -v
 ```
 
-48 个测试覆盖 config / audio / storage / llm / asr / tasks / main 全部模块。
+70 个测试覆盖 config / audio / storage / llm / asr / tasks / main 全部模块。其中 v0.2 新增覆盖：ASR 模型卸载（`unload_model` idle/busy/noop、`mark_used`、`status`）、端口冲突检测（空闲/占用/自身/非法）、服务设置 roundtrip + `restart_required`、idle watcher 决策（`_idle_check` 三种情形）+ 完整 asyncio 循环跑 `_idle_watcher` 的集成测试。
 
 ## 冒烟脚本
 

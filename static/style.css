@@ -818,3 +818,9 @@ button.mini:hover:not(:disabled) {
 }
 .llm-fields .model-row { display: flex; gap: 10px; align-items: flex-end; margin-bottom: 12px; }
 .llm-fields .model-row label { flex: 1; margin-bottom: 0; }
+
+.ssection { margin: 4px 0 8px; font-size: 14px; color: var(--gray-700, #4b5563); }
+.ssep { border: none; border-top: 1px solid var(--gray-200, #e5e7eb); margin: 18px 0 14px; }
+.server-row { display: flex; gap: 10px; align-items: flex-end; margin-bottom: 12px; }
+.server-row label { flex: 1; margin-bottom: 0; }
+.spanel label > input, .spanel label > textarea { margin-top: 4px; }

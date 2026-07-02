@@ -70,6 +70,57 @@ bash scripts/download_models.sh   # 预下载模型（推荐）
 
 > 启动后会显示局域网地址，同一网络下的其他设备（手机/平板）也能打开使用。
 
+### 常驻后台运行
+
+```bash
+./run.sh -d          # 后台运行（脱离终端，PID 写入 logs/tingji.pid，日志写入 logs/tingji.out）
+./run.sh --status    # 看是否在跑
+./run.sh --stop      # 停止
+```
+
+适合长时间挂在 Mac/Linux 上当本地转写服务用。「设置 → 服务」里还能改监听端口/host（改完需重启生效，改之前点「检测端口」，冲突会用 `lsof` 标出占用进程）。
+
+#### 模型闲置自动卸载
+
+常驻时最吃内存的是 FunASR 那 4 个模型。听记会在**闲置一段时间后把它们从内存里卸掉**，下次来活再自动加载——这样挂着不动时占用大幅下降。
+
+**什么时候触发卸载**（必须同时满足）：
+1. 模型当前已加载
+2. 没有转录在进行（`is_busy=False`）
+3. 没有任何任务在排队或跑（pending / converting / asr_running / 整理 / 总结 都不算空闲）
+4. 距上次 ASR 活动时间 ≥ 阈值（默认 **30 分钟**，可在「设置 → 服务」改，**保存即生效**不用重启；设 0 = 从不卸载）
+
+后台监视器每 60 秒查一次，所以最坏会多等 60 秒。急着释放可手点「设置 → 服务 → 立即释放模型」。
+
+**两个平台的回收效果**（同一段 `test_cn.wav`，阈值 1 分钟实测）：
+
+| 指标 | Mac mini M4 | WSL2 + RTX 4060 Ti |
+|---|---|---|
+| ASR 完成后 RSS | 1556 MB | 3521 MB |
+| 卸载后 RSS | 1275 MB | 1843 MB |
+| **RSS 净回收** | ~281 MB（**18%**） | **1678 MB（48%）** |
+| GPU 显存回收 | —（无独立显卡） | 2222 → 948 MiB（**57%**） |
+
+**为什么平台差距这么大**——两个独立因素叠加：
+- **占用端**：WSL 走 CUDA 会把 CUDA runtime / cuDNN / cuBLAS 一坨库 + CUDA context 加载进进程，所以 ASR 时占用比 Mac（MPS，运行时由系统托管）高一倍多。模型本身两台机器一样大，差距在 GPU 后端依赖。
+- **回收端**：Linux glibc 的 `free()` 配合 `malloc_trim(0)` 会把页**真正还给操作系统**（外加 `torch.cuda.empty_cache()` 还 GPU 显存）；macOS 的 malloc free 之后**不主动还页**，`ps` RSS 几乎不掉，但内存其实空出来了能被本进程复用。所以 Mac 上数字看着不动，实际进程内部已经可用。
+
+判定"卸载有没有生效"别看 Mac 的 RSS 数字——看「设置 → 服务」的模型状态字段，或日志里的 `FunASR models unloaded (idle)`。
+
+## 项目状态（v0.2）
+
+核心链路可用：上传 → 识别（带说话人分离 + 时间戳）→ 校对 → 一键整理 + 结构化纪要。
+
+**v0.2 新增（常驻后台能力）**：
+- `./run.sh -d` 后台运行（`--status` / `--stop`，PID + 日志）
+- **FunASR 模型闲置自动卸载**（默认 30 分钟，可配置；Mac 回收 18% / WSL+GPU 回收 48% RSS + 57% 显存）
+- 「设置 → 服务」tab：ASR 模型状态 + 手动释放、端口/host 配置 + 冲突检测（lsof 反查）、闲置阈值
+- `/api/asr/{status,unload}` 状态可观测 + 手动释放
+
+**v0.1 已完成**：发言人时间轴、结构化纪要（概述 / 决议 / 待办 / 待讨论 四段 JSON）、总结模板（预设 + 自定义）、整理前会议背景与常用术语、说话人改名同步所有视图与导出、md / txt / srt 导出、实时日志（落盘 + 各阶段耗时）、固定布局（顶栏与工具栏不随滚动）。
+
+**暂未做**：说话人手动合并 / 拆分、纪要二次编辑保存、docx 导出、导出选项（是否带说话人 / 时间戳）、议程章节切分。
+
 ## 使用流程
 
 1. **上传录音**：拖入或选择音频文件，填写标题，点「开始转录」
@@ -122,6 +173,7 @@ git clone --depth 1 https://www.modelscope.cn/iic/speech_campplus_sv_zh-cn_16k-c
 |---|---|
 | `asr.cache_dir` | FunASR 模型缓存目录，默认 `./models` |
 | `asr.hub` | `ms`（ModelScope，默认）或 `hf` |
+| `asr.idle_unload_minutes` | 模型闲置多久后自动卸载（分钟），默认 30；0 = 从不。可在网页「设置 → 服务」改，即时生效 |
 | `llm.mode` | `api` 或 `ollama` |
 | `llm.api.*` | OpenAI 兼容 API（base_url / api_key / model） |
 | `llm.ollama.*` | 本地 Ollama（base_url / model） |

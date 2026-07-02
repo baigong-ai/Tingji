@@ -70,6 +70,57 @@ Open `http://127.0.0.1:8000` in your browser.
 
 > On launch it prints the LAN address too — other devices on the same network (phone/tablet) can use it as well.
 
+### Running as a background service
+
+```bash
+./run.sh -d          # background (detached; PID → logs/tingji.pid, log → logs/tingji.out)
+./run.sh --status    # is it running?
+./run.sh --stop      # stop
+```
+
+Handy for keeping Tingji resident on a Mac/Linux box as your local transcription service. Settings → Service also lets you change the listen port/host (restart required) — click "Check port" first and it'll name the conflicting process via `lsof` if the port is taken.
+
+#### Idle model auto-unload
+
+The biggest resident cost is the 4 FunASR models. After an idle period Tingji **unloads them from RAM** and reloads on the next transcription — so the resident footprint drops sharply when nothing's happening.
+
+**Unload fires when all of these hold**:
+1. The model is currently loaded
+2. No transcription is in flight (`is_busy=False`)
+3. No task is queued or running (pending / converting / asr_running / polish / summarize don't count as idle)
+4. Time since the last ASR activity ≥ threshold (default **30 min**; set in Settings → Service, **takes effect on save** without a restart; 0 = never unload)
+
+A watcher checks every 60 s, so worst case add ~60 s. In a hurry, hit "Release model now" in Settings → Service.
+
+**Reclaim by platform** (same `test_cn.wav`, 1-minute threshold):
+
+| Metric | Mac mini M4 | WSL2 + RTX 4060 Ti |
+|---|---|---|
+| RSS right after ASR | 1556 MB | 3521 MB |
+| RSS after unload | 1275 MB | 1843 MB |
+| **RSS net reclaimed** | ~281 MB (**18%**) | **1678 MB (48%)** |
+| GPU memory reclaimed | — (no dGPU) | 2222 → 948 MiB (**57%**) |
+
+**Why the platform gap** — two independent factors stack:
+- **Occupation side**: on WSL+CUDA the process pulls in the CUDA runtime + cuDNN + cuBLAS + a CUDA context, so peak RSS is ~2× the Mac (MPS) where the runtime is mostly system-shared. The models themselves are identical; the difference is the GPU backend's dependencies.
+- **Reclaim side**: Linux glibc's `free()` + `malloc_trim(0)` actually **returns pages to the OS** (plus `torch.cuda.empty_cache()` for VRAM); macOS's malloc **doesn't proactively return** freed pages, so `ps` RSS barely moves even though the memory is reusable in-process.
+
+Don't judge "did unload work" by macOS RSS — check the model-state field in Settings → Service, or the `FunASR models unloaded (idle)` log line.
+
+## Project status (v0.2)
+
+The core pipeline works: upload → recognition (with speaker diarization + timestamps) → proofread → one-click polish + structured minutes.
+
+**New in v0.2 (resident/background mode)**:
+- `./run.sh -d` background running (`--status` / `--stop`, PID + log)
+- **FunASR model auto-unloads when idle** (default 30 min, configurable; reclaims 18% RSS on Mac / 48% RSS + 57% VRAM on WSL+GPU)
+- Settings → Service tab: ASR status + manual unload, port/host config with conflict detection (lsof), idle threshold
+- `/api/asr/{status,unload}` observability + manual release
+
+**v0.1 done**: speaker timeline, structured minutes (summary / decisions / action items / open questions as JSON), summary templates (preset + custom), pre-polish meeting background + common terms, speaker rename synced across views and exports, md / txt / srt export, live log (persisted + per-stage timing), fixed layout (top bar and toolbar don't scroll away).
+
+**Not yet**: manual speaker merge/split, editing the saved minutes, docx export, export options (with/without speaker or timestamps), agenda chapter splitting.
+
 ## Workflow
 
 1. **Upload** — drag in an audio file, enter a title, click "Start transcription"
@@ -122,6 +173,7 @@ Almost everything is configurable from the in-browser "Settings" (data directory
 |---|---|
 | `asr.cache_dir` | FunASR model cache dir, default `./models` |
 | `asr.hub` | `ms` (ModelScope, default) or `hf` |
+| `asr.idle_unload_minutes` | Minutes of idle before the model auto-unloads from RAM (default 30; 0 = never). Set in Settings → Service; takes effect immediately |
 | `llm.mode` | `api` or `ollama` |
 | `llm.api.*` | OpenAI-compatible API (base_url / api_key / model) |
 | `llm.ollama.*` | Local Ollama (base_url / model) |
