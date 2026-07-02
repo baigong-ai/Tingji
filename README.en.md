@@ -23,10 +23,10 @@ Built on [FunASR](https://github.com/modelscope/FunASR) (speech recognition + sp
 - **Export** `.md` / `.txt` / `.srt` (md export uses real speaker names)
 - **Runs locally** — recordings and results never leave your machine
 
-![Detail page](docs/screenshot-detail.png)
+
 
 ## A quick look
-
+![Detail page](docs/screenshot-detail.png)
 Around a single recording, Tingji gives you four things:
 
 **Automatic speaker diarization + talk-time timeline.** A colored bar at the top shows each speaker's share of total talk time — who talked more at a glance. Rename to real names, synced across all views and exports.
