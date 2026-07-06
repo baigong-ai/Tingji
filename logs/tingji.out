@@ -1,0 +1,52 @@
+INFO:     Started server process [82912]
+INFO:     Waiting for application startup.
+2026-07-06 21:09:42,452 INFO app.main idle watcher started (tick=60s, re-reads threshold each tick)
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:65360 - "GET /api/settings/server HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65361 - "GET /api/asr/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65362 - "POST /api/settings/server/check HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65363 - "POST /api/settings/server/check HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65366 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65366 - "GET /static/app.js?v=14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65366 - "GET /api/meetings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65367 - "GET /api/settings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65368 - "GET /api/info HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65366 - "GET /m/20260703-005158-e2e HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65367 - "GET /static/style.css?v=8 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65368 - "GET /static/meeting.css?v=14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65366 - "GET /static/marked.min.js?v=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65367 - "GET /static/meeting.js?v=20 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65368 - "GET /api/meetings/20260703-005158-e2e HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65367 - "GET /api/info HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65366 - "GET /api/settings/templates HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65368 - "GET /api/meetings/20260703-005158-e2e/audio HTTP/1.1" 206 Partial Content
+INFO:     127.0.0.1:65367 - "GET /api/meetings/20260703-005158-e2e/audio HTTP/1.1" 206 Partial Content
+INFO:     127.0.0.1:65369 - "GET /?settings=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65370 - "GET /static/app.js?v=14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65369 - "GET /static/style.css?v=10 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65371 - "GET /static/access.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:65369 - "GET /api/meetings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65370 - "GET /api/settings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65371 - "GET /api/info HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65371 - "GET /api/settings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65371 - "GET /api/settings/templates HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65370 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:65461 - "GET /api/asr/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65462 - "GET /api/settings/server HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65467 - "PUT /api/meetings/20260703-005158-e2e/context HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65468 - "PUT /api/meetings/20260703-005158-e2e/context HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65469 - "POST /api/settings/server/check HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65474 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65474 - "GET /static/app.js?v=14 HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:65474 - "GET /api/meetings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65475 - "GET /api/settings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65476 - "GET /api/info HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65474 - "GET /m/20260703-004311-e2e-96741 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65475 - "GET /static/style.css?v=8 HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:65476 - "GET /api/meetings/20260703-004311-e2e-96741 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65474 - "GET /api/info HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65475 - "GET /api/settings/templates HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65476 - "GET /api/meetings/20260703-004311-e2e-96741/audio HTTP/1.1" 206 Partial Content
+INFO:     127.0.0.1:65474 - "GET /api/meetings/20260703-004311-e2e-96741/audio HTTP/1.1" 206 Partial Content
+INFO:     127.0.0.1:49157 - "POST /api/settings/server/check HTTP/1.1" 200 OK

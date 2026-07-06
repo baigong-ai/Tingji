@@ -1,4 +1,5 @@
 import asyncio
+import errno
 import json
 import logging
 import os
@@ -523,19 +524,21 @@ async def check_server_port(payload: dict):
         raise HTTPException(400, "端口需为整数")
     if not (1 <= port <= 65535):
         raise HTTPException(400, "端口须在 1-65535")
-    host = (payload.get("host") or "0.0.0.0").strip() or "0.0.0.0"
     # Same port as the running server = us holding it.
     if port == _running_port():
-        return {"ok": True, "port": port, "self": True, "note": "当前服务端口（即本服务自身）"}
-    bind_host = "0.0.0.0" if host in ("0.0.0.0", "::") else host
+        return {"ok": True, "port": port, "self": True}
+    # ponytail: always probe 0.0.0.0 — it's the strictest bind (covers every
+    # interface), so "free on 0.0.0.0" means free anywhere the server might
+    # listen. Also sidesteps a bogus host string (e.g. a stale "undefined")
+    # being mistaken for an occupied port.
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
-            s.bind((bind_host, port))
+            s.bind(("0.0.0.0", port))
         return {"ok": True, "port": port, "self": False}
     except OSError as e:
-        return {"ok": False, "port": port, "self": False,
-                "error": str(e), "who": _who_uses_port(port)}
+        if e.errno in (errno.EACCES, errno.EPERM):
+            return {"ok": False, "port": port, "self": False, "permission": True}
+        return {"ok": False, "port": port, "self": False, "who": _who_uses_port(port)}
 
 
 @app.post("/api/settings/server")

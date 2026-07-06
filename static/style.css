@@ -647,10 +647,17 @@ button.mini:hover:not(:disabled) {
   min-height: 20px;
   margin-bottom: 14px;
   word-break: break-all;
+  white-space: pre-line;
   padding: 8px 12px;
   background: var(--paper-deep);
   border-radius: var(--r-sm);
   border-left: 2px solid var(--ink-faint);
+}
+.def {
+  display: block;
+  font-size: 11px;
+  color: var(--ink-faint);
+  margin: 2px 0 6px;
 }
 .modal-actions {
   display: flex;

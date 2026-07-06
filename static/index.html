@@ -149,24 +149,24 @@
       </div>
 
       <div class="spanel" data-spanel="server">
-        <h4 class="ssection">ASR 模型状态</h4>
-        <div id="asr-status-line" class="hint">加载中...</div>
+        <h4 class="ssection">语音识别模型</h4>
+        <div id="asr-status-line" class="hint">加载中…</div>
         <div class="modal-actions">
-          <button id="asr-refresh-btn" class="mini" type="button">刷新状态</button>
-          <button id="asr-unload-btn" class="mini" type="button">立即释放模型</button>
+          <button id="asr-refresh-btn" class="mini" type="button">刷新</button>
+          <button id="asr-unload-btn" class="mini" type="button">立即释放内存</button>
         </div>
         <div id="asr-result" class="settings-result"></div>
 
         <hr class="ssep">
-        <h4 class="ssection">端口 / 监听</h4>
-        <p class="hint">改完端口或监听地址后<b>需重启服务</b>才生效；闲置阈值保存后即时生效。</p>
+        <h4 class="ssection">网络端口</h4>
+        <p class="hint">端口号和监听地址改动后<b>需重启服务</b>才生效；自动释放时间保存后立即生效。</p>
         <div class="server-row">
-          <label style="flex:1">监听 host<input id="srv-host" type="text" placeholder="0.0.0.0"></label>
-          <label style="width:120px">端口<input id="srv-port" type="number" min="1" max="65535" placeholder="8000"></label>
+          <label style="flex:1">监听地址<span class="def">默认 0.0.0.0，一般不用改</span><input id="srv-host" type="text" placeholder="0.0.0.0"></label>
+          <label style="width:130px">端口号<span class="def">默认 8000</span><input id="srv-port" type="number" min="1" max="65535" placeholder="8000"></label>
         </div>
-        <label>闲置卸载模型（分钟，0 = 从不）<input id="srv-idle" type="number" min="0" placeholder="30"></label>
+        <label>空闲多久自动释放模型内存（分钟）<span class="def">默认 30 分钟，填 0 表示永不释放</span><input id="srv-idle" type="number" min="0" placeholder="30"></label>
         <div class="modal-actions">
-          <button id="srv-check-btn" class="mini" type="button">检测端口</button>
+          <button id="srv-check-btn" class="mini" type="button">检测端口能否使用</button>
           <button id="srv-save-btn" class="primary" type="button">保存</button>
         </div>
         <div id="srv-result" class="settings-result"></div>
@@ -179,6 +179,6 @@
   </div>
 
   <script src="/static/access.js?v=1"></script>
-  <script src="/static/app.js?v=13"></script>
+  <script src="/static/app.js?v=14"></script>
 </body>
 </html>
