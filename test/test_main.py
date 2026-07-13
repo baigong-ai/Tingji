@@ -63,6 +63,63 @@ def test_delete_meeting(client):
     assert client.get(f"/api/meetings/{mid}").status_code == 404
 
 
+def test_delete_meeting_keep_moves_to_trash(client):
+    mid = client.post("/api/upload", files={"audio": ("a.wav", io.BytesIO(b"x"), "audio/wav")}, data={"title": "T"}).json()["meeting_id"]
+    r = client.delete(f"/api/meetings/{mid}?keep=1")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["trashed"] is True
+    # gone from history list
+    assert not any(m["id"] == mid for m in client.get("/api/meetings").json())
+    # files preserved under visible 回收站 dir
+    trash = storage.trash_dir()
+    assert trash.name == "回收站"
+    moved = list(trash.iterdir())
+    assert len(moved) == 1
+    assert (moved[0] / "meta.json").exists()
+    assert body["trash_path"].endswith("回收站/" + moved[0].name)
+
+
+def test_delete_meeting_full_removes_files(client):
+    mid = client.post("/api/upload", files={"audio": ("a.wav", io.BytesIO(b"x"), "audio/wav")}, data={"title": "T"}).json()["meeting_id"]
+    r = client.delete(f"/api/meetings/{mid}")
+    assert r.json()["trashed"] is False
+    assert not storage.meeting_dir(mid).exists()
+
+
+def test_rename_meeting(client):
+    mid = client.post("/api/upload", files={"audio": ("a.wav", io.BytesIO(b"x"), "audio/wav")}, data={"title": "旧名"}).json()["meeting_id"]
+    r = client.put(f"/api/meetings/{mid}/title", json={"title": "新名字"})
+    assert r.status_code == 200 and r.json()["title"] == "新名字"
+    assert client.get(f"/api/meetings/{mid}").json()["meta"]["title"] == "新名字"
+
+
+def test_rename_meeting_rejects_empty(client):
+    mid = client.post("/api/upload", files={"audio": ("a.wav", io.BytesIO(b"x"), "audio/wav")}, data={"title": "T"}).json()["meeting_id"]
+    assert client.put(f"/api/meetings/{mid}/title", json={"title": "  "}).status_code == 400
+
+
+def test_set_tags(client):
+    mid = client.post("/api/upload", files={"audio": ("a.wav", io.BytesIO(b"x"), "audio/wav")}, data={"title": "T"}).json()["meeting_id"]
+    r = client.put(f"/api/meetings/{mid}/tags", json={"tags": ["周会", "产品", "周会"]})
+    assert r.status_code == 200
+    assert r.json()["tags"] == ["周会", "产品"]  # de-duped, order kept
+    meta = client.get(f"/api/meetings/{mid}").json()["meta"]
+    assert meta["tags"] == ["周会", "产品"]
+
+
+def test_set_tags_rejects_bad_shape(client):
+    mid = client.post("/api/upload", files={"audio": ("a.wav", io.BytesIO(b"x"), "audio/wav")}, data={"title": "T"}).json()["meeting_id"]
+    assert client.put(f"/api/meetings/{mid}/tags", json={"tags": "not-a-list"}).status_code == 400
+
+
+def test_trash_not_listed_as_meeting(client):
+    # 回收站 dir itself must not appear in the meeting list
+    storage.trash_dir().mkdir(parents=True, exist_ok=True)
+    meetings = client.get("/api/meetings").json()
+    assert all("回收站" not in m["id"] for m in meetings)
+
+
 def test_rename_speakers_persists(client):
     mid = client.post("/api/upload", files={"audio": ("a.wav", io.BytesIO(b"x"), "audio/wav")}, data={"title": "T"}).json()["meeting_id"]
     r = client.put(f"/api/meetings/{mid}/speakers", json={"names": {"0": "Alice", "1": "Bob"}})

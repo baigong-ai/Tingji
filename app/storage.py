@@ -67,6 +67,7 @@ def create_meeting(title: str, audio_path: str, ext: str) -> str:
         "status": "pending",
         "spk_count": 0,
         "error": None,
+        "tags": [],
     }
     _write_meta(mdir, meta)
     return meeting_id
@@ -168,6 +169,26 @@ def delete_meeting(meeting_id: str) -> None:
     mdir = DATA_DIR / meeting_id
     if mdir.exists():
         shutil.rmtree(mdir)
+
+
+def trash_dir() -> Path:
+    return DATA_DIR / "回收站"
+
+
+def move_to_trash(meeting_id: str) -> Path | None:
+    mdir = DATA_DIR / meeting_id
+    if not mdir.exists():
+        return None
+    td = trash_dir()
+    td.mkdir(parents=True, exist_ok=True)
+    target = td / meeting_id
+    i = 1
+    while target.exists():
+        target = td / f"{meeting_id}.{i}"
+        i += 1
+    # rename within DATA_DIR (same filesystem): atomic, no copymode, 9p-safe
+    mdir.rename(target)
+    return target
 
 
 def meeting_dir(meeting_id: str) -> Path:

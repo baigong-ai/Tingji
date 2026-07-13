@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>听记 · 让录音变成文字</title>
-  <link rel="stylesheet" href="/static/style.css?v=10">
+  <link rel="stylesheet" href="/static/style.css?v=11">
 </head>
 <body>
   <header>
@@ -63,6 +63,7 @@
 
     <section class="upload-card">
       <h2>历史会议</h2>
+      <div id="tag-filter" class="tag-filter hidden"></div>
       <ul id="history" class="history-list"></ul>
     </section>
   </main>
@@ -178,7 +179,15 @@
     </div>
   </div>
 
+  <div id="dlg-modal" class="modal hidden">
+    <div class="modal-card dlg-card">
+      <h3 id="dlg-title"></h3>
+      <div id="dlg-body"></div>
+      <div id="dlg-actions" class="modal-actions"></div>
+    </div>
+  </div>
+
   <script src="/static/access.js?v=1"></script>
-  <script src="/static/app.js?v=14"></script>
+  <script src="/static/app.js?v=15"></script>
 </body>
 </html>

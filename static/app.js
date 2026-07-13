@@ -86,27 +86,234 @@ function showError(msg) {
   errorEl.classList.remove('hidden');
 }
 
+let allMeetings = [];
+const activeTags = new Set();
+const BUSY_STATUS = ['pending', 'converting', 'asr_running', 'llm_polishing', 'llm_summarizing'];
+const isFinished = s => !BUSY_STATUS.includes(s);
+
 async function loadHistory() {
   const r = await fetch('/api/meetings');
-  const items = await r.json();
+  allMeetings = await r.json();
+  renderTagFilter();
+  renderHistory();
+}
+
+function allTagList() {
+  const s = new Set();
+  for (const m of allMeetings) (m.tags || []).forEach(t => s.add(t));
+  return [...s].sort((a, b) => a.localeCompare(b, 'zh'));
+}
+
+function renderTagFilter() {
+  const bar = document.getElementById('tag-filter');
+  const tags = allTagList();
+  if (!tags.length) { bar.classList.add('hidden'); bar.innerHTML = ''; return; }
+  bar.classList.remove('hidden');
+  let html = '<span class="tf-label">按标签筛选</span>';
+  const allActive = activeTags.size === 0;
+  html += `<button class="tag-chip${allActive ? ' active' : ''}" data-tag="">全部</button>`;
+  for (const t of tags) {
+    html += `<button class="tag-chip${activeTags.has(t) ? ' active' : ''}" data-tag="${escapeHtml(t)}">${escapeHtml(t)}</button>`;
+  }
+  bar.innerHTML = html;
+  bar.querySelectorAll('.tag-chip').forEach(c => {
+    c.addEventListener('click', () => {
+      const t = c.dataset.tag;
+      if (t === '') activeTags.clear();
+      else if (activeTags.has(t)) activeTags.delete(t);
+      else activeTags.add(t);
+      renderTagFilter();
+      renderHistory();
+    });
+  });
+}
+
+function renderHistory() {
+  const items = activeTags.size === 0
+    ? allMeetings
+    : allMeetings.filter(m => (m.tags || []).some(t => activeTags.has(t)));
   historyList.innerHTML = '';
-  if (!items.length) {
+  if (!allMeetings.length) {
     historyList.innerHTML = '<li class="meta" style="justify-content:center;color:#9ca3af;">暂无会议，上传第一段录音开始吧</li>';
     return;
   }
-  for (const m of items) {
-    const li = document.createElement('li');
-    li.dataset.href = `/m/${m.id}`;
-    li.innerHTML = `
-      <div>
-        <span class="title">${escapeHtml(m.title)}</span>
-        <div class="meta">${fmtDate(m.created_at)}<span class="sep">·</span>${fmtDuration(m.duration_ms)}<span class="sep">·</span>${m.spk_count} 人</div>
-      </div>
-      <span class="status-badge status-${m.status}">${statusLabel(m.status)}</span>
-    `;
-    li.addEventListener('click', () => { location.href = li.dataset.href; });
-    historyList.appendChild(li);
+  if (!items.length) {
+    historyList.innerHTML = '<li class="meta" style="justify-content:center;color:#9ca3af;">没有匹配所选标签的会议</li>';
+    return;
   }
+  for (const m of items) historyList.appendChild(buildRow(m));
+}
+
+function buildRow(m) {
+  const li = document.createElement('li');
+  li.dataset.id = m.id;
+  const tags = m.tags || [];
+  const tagsHtml = tags.map(t =>
+    `<button class="tag-chip sm" data-tag="${escapeHtml(t)}">${escapeHtml(t)}</button>`).join('');
+  li.innerHTML = `
+    <div class="hmain">
+      <span class="title">${escapeHtml(m.title)}</span>
+      <div class="meta">${fmtDate(m.created_at)}<span class="sep">·</span>${fmtDuration(m.duration_ms)}<span class="sep">·</span>${m.spk_count} 人</div>
+      <div class="htags ${tags.length ? '' : 'hidden'}">${tagsHtml}</div>
+    </div>
+    <div class="hside">
+      <span class="status-badge status-${m.status}">${statusLabel(m.status)}</span>
+      <div class="hactions">
+        ${isFinished(m.status) ? '<button class="mini hact" data-act="rename">改名</button>' : ''}
+        <button class="mini hact" data-act="tags">标签</button>
+        <button class="mini hact hact-del" data-act="delete">删除</button>
+      </div>
+    </div>
+  `;
+  li.addEventListener('click', () => { location.href = `/m/${m.id}`; });
+  li.querySelectorAll('.htags .tag-chip').forEach(c => {
+    c.addEventListener('click', e => {
+      e.stopPropagation();
+      const t = c.dataset.tag;
+      if (activeTags.has(t)) activeTags.delete(t); else activeTags.add(t);
+      renderTagFilter();
+      renderHistory();
+    });
+  });
+  li.querySelectorAll('.hact').forEach(b => {
+    b.addEventListener('click', e => {
+      e.stopPropagation();
+      const act = b.dataset.act;
+      if (act === 'rename') openRename(m);
+      else if (act === 'tags') openTags(m);
+      else if (act === 'delete') openDelete(m);
+    });
+  });
+  return li;
+}
+
+// --- 通用对话框（改名 / 标签 / 删除） ---
+const dlgModal = document.getElementById('dlg-modal');
+const dlgTitle = document.getElementById('dlg-title');
+const dlgBody = document.getElementById('dlg-body');
+const dlgActions = document.getElementById('dlg-actions');
+
+function closeDlg() {
+  dlgModal.classList.add('hidden');
+  dlgBody.innerHTML = '';
+  dlgActions.innerHTML = '';
+  renderTagFilter();
+  renderHistory();
+}
+dlgModal.addEventListener('click', e => { if (e.target === dlgModal) closeDlg(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !dlgModal.classList.contains('hidden')) closeDlg();
+});
+
+function openRename(m) {
+  dlgTitle.textContent = '重命名会议';
+  dlgBody.innerHTML = '<input id="dlg-input" type="text" maxlength="120">';
+  dlgActions.innerHTML = '<button id="dlg-cancel">取消</button><button id="dlg-ok" class="primary">保存</button>';
+  const input = document.getElementById('dlg-input');
+  input.value = m.title;
+  const ok = async () => {
+    const v = input.value.trim();
+    if (!v) { input.focus(); return; }
+    const r = await fetch(`/api/meetings/${m.id}/title`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: v })
+    });
+    if (r.ok) {
+      m.title = v;
+      const c = allMeetings.find(x => x.id === m.id);
+      if (c) c.title = v;
+      closeDlg();
+    }
+  };
+  document.getElementById('dlg-ok').addEventListener('click', ok);
+  document.getElementById('dlg-cancel').addEventListener('click', closeDlg);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') ok(); });
+  dlgModal.classList.remove('hidden');
+  input.focus();
+  input.select();
+}
+
+function openTags(m) {
+  dlgTitle.textContent = '管理标签';
+  dlgBody.innerHTML = `
+    <div id="dlg-tags" class="dlg-tags"></div>
+    <div class="dlg-add">
+      <input id="dlg-input" type="text" placeholder="输入标签后回车添加" maxlength="20">
+      <button id="dlg-add-btn" class="mini">添加</button>
+    </div>`;
+  dlgActions.innerHTML = '<button id="dlg-cancel">关闭</button>';
+  document.getElementById('dlg-cancel').addEventListener('click', closeDlg);
+  const input = document.getElementById('dlg-input');
+  const renderChips = () => {
+    const box = document.getElementById('dlg-tags');
+    const tags = m.tags || [];
+    box.innerHTML = tags.length
+      ? tags.map(t => `<button class="tag-chip sm removable">${escapeHtml(t)}<span class="x" data-tag="${escapeHtml(t)}" role="button" aria-label="移除">×</span></button>`).join('')
+      : '<span class="he-empty">暂无标签</span>';
+    box.querySelectorAll('.x').forEach(x => x.addEventListener('click', async () => {
+      const t = x.dataset.tag;
+      await saveTags(m, (m.tags || []).filter(s => s !== t));
+      renderChips();
+    }));
+  };
+  const add = async () => {
+    const v = input.value.trim();
+    if (!v) return;
+    const tags = (m.tags || []).slice();
+    if (!tags.includes(v)) tags.push(v);
+    await saveTags(m, tags);
+    input.value = '';
+    renderChips();
+  };
+  document.getElementById('dlg-add-btn').addEventListener('click', add);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') add(); });
+  renderChips();
+  dlgModal.classList.remove('hidden');
+  input.focus();
+}
+
+async function saveTags(m, tags) {
+  const r = await fetch(`/api/meetings/${m.id}/tags`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tags })
+  });
+  const d = await r.json();
+  if (r.ok) {
+    m.tags = d.tags;
+    const c = allMeetings.find(x => x.id === m.id);
+    if (c) c.tags = d.tags;
+    renderTagFilter();
+  }
+}
+
+async function openDelete(m) {
+  let trashPath = '';
+  try { trashPath = (await fetch('/api/settings').then(r => r.json())).trash_dir || ''; } catch {}
+  dlgTitle.textContent = '删除会议';
+  dlgBody.innerHTML = `
+    <p>确定删除「<b>${escapeHtml(m.title)}</b>」？请选择删除方式：</p>
+    <div class="dlg-del-options">
+      <label>
+        <input type="radio" name="delmode" value="keep" checked>
+        <b>移到回收站（保留文件）</b>
+        <span class="hint">从列表移除，会议文件移到回收站，可自行取回：<code>${escapeHtml(trashPath)}</code></span>
+      </label>
+      <label>
+        <input type="radio" name="delmode" value="full">
+        <b>完全删除</b>
+        <span class="hint">永久删除全部文件，不可恢复。</span>
+      </label>
+    </div>`;
+  dlgActions.innerHTML = '<button id="dlg-cancel">取消</button><button id="dlg-del" class="primary">删除</button>';
+  document.getElementById('dlg-cancel').addEventListener('click', closeDlg);
+  document.getElementById('dlg-del').addEventListener('click', async () => {
+    const mode = document.querySelector('input[name=delmode]:checked').value;
+    const url = `/api/meetings/${m.id}` + (mode === 'keep' ? '?keep=1' : '');
+    const r = await fetch(url, { method: 'DELETE' });
+    if (r.ok) {
+      allMeetings = allMeetings.filter(x => x.id !== m.id);
+      closeDlg();
+    }
+  });
+  dlgModal.classList.remove('hidden');
 }
 
 function fmtDate(iso) {

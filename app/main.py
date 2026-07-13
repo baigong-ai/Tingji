@@ -174,7 +174,7 @@ async def server_info():
 
 @app.get("/api/settings")
 async def get_settings():
-    return {"data_dir": str(storage.get_data_dir())}
+    return {"data_dir": str(storage.get_data_dir()), "trash_dir": str(storage.trash_dir())}
 
 
 @app.post("/api/settings")
@@ -653,6 +653,35 @@ async def rename_speakers(meeting_id: str, payload: dict):
     return {"ok": True, "speaker_names": names}
 
 
+@app.put("/api/meetings/{meeting_id}/title")
+async def rename_meeting(meeting_id: str, payload: dict):
+    if storage.get_meeting(meeting_id) is None:
+        raise HTTPException(404)
+    title = (payload.get("title") or "").strip()
+    if not title:
+        raise HTTPException(400, "标题不能为空")
+    if len(title) > 120:
+        raise HTTPException(400, "标题过长（最多 120 字）")
+    storage.update_meta(meeting_id, title=title)
+    return {"ok": True, "title": title}
+
+
+@app.put("/api/meetings/{meeting_id}/tags")
+async def set_tags(meeting_id: str, payload: dict):
+    if storage.get_meeting(meeting_id) is None:
+        raise HTTPException(404)
+    raw = payload.get("tags")
+    if not isinstance(raw, list):
+        raise HTTPException(400, "tags 格式错误")
+    tags = []
+    for t in raw:
+        t = str(t).strip()
+        if t and t not in tags:
+            tags.append(t)
+    storage.update_meta(meeting_id, tags=tags)
+    return {"ok": True, "tags": tags}
+
+
 @app.put("/api/meetings/{meeting_id}/context")
 async def set_meeting_context(meeting_id: str, payload: dict):
     if storage.get_meeting(meeting_id) is None:
@@ -760,11 +789,14 @@ async def set_templates(payload: dict):
 
 
 @app.delete("/api/meetings/{meeting_id}")
-async def delete_meeting(meeting_id: str):
+async def delete_meeting(meeting_id: str, keep: bool = False):
     if storage.get_meeting(meeting_id) is None:
         raise HTTPException(404)
+    if keep:
+        moved = storage.move_to_trash(meeting_id)
+        return {"ok": True, "trashed": True, "trash_path": str(moved)}
     storage.delete_meeting(meeting_id)
-    return {"ok": True}
+    return {"ok": True, "trashed": False}
 
 
 def _fmt_ts(ms: int) -> str:

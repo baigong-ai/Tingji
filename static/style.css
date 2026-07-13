@@ -831,3 +831,137 @@ button.mini:hover:not(:disabled) {
 .server-row { display: flex; gap: 10px; align-items: flex-end; margin-bottom: 12px; }
 .server-row label { flex: 1; margin-bottom: 0; }
 .spanel label > input, .spanel label > textarea { margin-top: 4px; }
+
+/* ============================================================
+   历史会议 · 标签 / 行操作 / 对话框
+   ============================================================ */
+
+/* 顶部标签筛选条 */
+.tag-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  background: var(--paper-deep);
+  border: 1px solid var(--paper-edge);
+  border-radius: var(--r-md);
+}
+.tag-filter .tf-label {
+  font-size: 11px;
+  color: var(--ink-faint);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-family: var(--font-serif);
+  margin-right: 2px;
+}
+
+/* 通用标签 chip（覆盖默认 button 样式） */
+button.tag-chip {
+  font-family: var(--font-serif);
+  font-size: 12px;
+  color: var(--ink-soft);
+  background: var(--paper);
+  border: 1px solid var(--paper-edge);
+  padding: 4px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  transition: all var(--tx);
+  white-space: nowrap;
+}
+button.tag-chip:hover:not(:disabled) {
+  background: var(--paper);
+  border-color: var(--ink-faint);
+  color: var(--ink);
+}
+button.tag-chip.active {
+  background: var(--indigo);
+  color: var(--paper);
+  border-color: var(--indigo);
+}
+button.tag-chip.active:hover:not(:disabled) {
+  background: var(--indigo);
+  color: var(--paper);
+}
+button.tag-chip.sm { font-size: 11px; padding: 2px 10px; }
+button.tag-chip.removable { display: inline-flex; align-items: center; gap: 6px; }
+button.tag-chip .x {
+  background: none;
+  color: inherit;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.55;
+}
+button.tag-chip .x:hover { background: none; opacity: 1; }
+
+/* 历史行：左主区 + 右侧操作区 */
+.history-list li { align-items: flex-start; }
+.hmain { min-width: 0; flex: 1; }
+.htags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.hside {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  flex: none;
+  margin-left: 12px;
+}
+.hactions { display: flex; gap: 6px; }
+
+/* 删除按钮着印章红 */
+button.mini.hact-del { color: var(--seal); }
+button.mini.hact-del:hover:not(:disabled) {
+  background: var(--seal-soft);
+  color: var(--seal-deep);
+  border-color: var(--seal-soft);
+}
+
+/* 通用对话框（复用于改名 / 标签 / 删除） */
+.dlg-card { max-width: 460px; }
+#dlg-body p { margin: 0 0 12px; font-size: 14px; color: var(--ink-soft); line-height: 1.6; }
+#dlg-body p b { color: var(--ink); }
+#dlg-body input[type=text] { width: 100%; }
+.dlg-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+  min-height: 22px;
+}
+.he-empty { font-size: 12px; color: var(--ink-ghost); font-style: italic; }
+.dlg-add { display: flex; gap: 8px; }
+.dlg-add input { flex: 1; }
+.dlg-del-options { display: flex; flex-direction: column; gap: 14px; margin-top: 6px; }
+.dlg-del-options label {
+  display: block;
+  font-size: 13px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  line-height: 1.55;
+}
+.dlg-del-options input[type=radio] { margin-right: 6px; vertical-align: middle; }
+.dlg-del-options .hint {
+  display: block;
+  font-size: 11px;
+  color: var(--ink-faint);
+  margin: 3px 0 0 20px;
+  font-style: normal;
+}
+.dlg-del-options code {
+  background: var(--paper-deep);
+  padding: 1px 6px;
+  border-radius: var(--r-sm);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  word-break: break-all;
+}
