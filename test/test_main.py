@@ -155,6 +155,30 @@ def test_set_meeting_template(client):
     assert client.get(f"/api/meetings/{mid}").json()["meta"]["template"] == "company"
 
 
+def test_onboard_flag_roundtrip(client, monkeypatch):
+    monkeypatch.setattr(main, "_persist_storage", lambda **kw: None)
+    prev = main.config.storage.onboarded
+    try:
+        main.config.storage.onboarded = False
+        assert client.get("/api/settings").json()["onboarded"] is False
+        assert client.post("/api/settings/onboard").status_code == 200
+        assert client.get("/api/settings").json()["onboarded"] is True
+    finally:
+        main.config.storage.onboarded = prev
+
+
+def test_save_data_dir_marks_onboarded(client, monkeypatch):
+    monkeypatch.setattr(main, "_persist_storage", lambda **kw: None)
+    prev = main.config.storage.onboarded
+    try:
+        main.config.storage.onboarded = False
+        r = client.post("/api/settings", json={"data_dir": str(storage.DATA_DIR)})
+        assert r.status_code == 200
+        assert client.get("/api/settings").json()["onboarded"] is True
+    finally:
+        main.config.storage.onboarded = prev
+
+
 def test_export_txt_uses_speaker_names(client):
     mid = client.post("/api/upload", files={"audio": ("a.wav", io.BytesIO(b"x"), "audio/wav")}, data={"title": "T"}).json()["meeting_id"]
     storage.save_raw(mid, {"sentences": [

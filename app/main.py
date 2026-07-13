@@ -174,7 +174,11 @@ async def server_info():
 
 @app.get("/api/settings")
 async def get_settings():
-    return {"data_dir": str(storage.get_data_dir()), "trash_dir": str(storage.trash_dir())}
+    return {
+        "data_dir": str(storage.get_data_dir()),
+        "trash_dir": str(storage.trash_dir()),
+        "onboarded": bool(config.storage.onboarded) if config else False,
+    }
 
 
 @app.post("/api/settings")
@@ -190,9 +194,21 @@ async def set_settings(payload: dict):
     except Exception as e:
         raise HTTPException(400, f"该目录不可写：{e}")
     previous = str(storage.get_data_dir())
-    _persist_data_dir(str(p))
+    if config is not None:
+        config.storage.onboarded = True
+    _persist_storage(data_dir=str(p), onboarded=True)
     storage.set_data_dir(str(p))
     return {"data_dir": str(p), "previous_dir": previous}
+
+
+@app.post("/api/settings/onboard")
+async def mark_onboarded():
+    """User accepted the current data dir ("就用这个") — stop showing the banner."""
+    if config is None:
+        raise HTTPException(500, "config not loaded")
+    config.storage.onboarded = True
+    _persist_storage(onboarded=True)
+    return {"ok": True}
 
 
 @app.post("/api/settings/test")
@@ -251,12 +267,16 @@ async def migrate_data(payload: dict):
     return {"moved": moved, "count": len(moved), "to_dir": str(dst), "errors": errors}
 
 
-def _persist_data_dir(new_dir: str) -> None:
+def _persist_storage(data_dir: str | None = None, onboarded: bool | None = None) -> None:
     p = Path("config.yaml")
     if not p.exists():
         return
     raw = yaml.safe_load(p.read_text()) or {}
-    raw.setdefault("storage", {})["data_dir"] = new_dir
+    sec = raw.setdefault("storage", {})
+    if data_dir is not None:
+        sec["data_dir"] = data_dir
+    if onboarded is not None:
+        sec["onboarded"] = onboarded
     p.write_text(yaml.safe_dump(raw, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
 

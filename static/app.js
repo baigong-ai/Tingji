@@ -607,15 +607,17 @@ document.getElementById('templates-save-btn').addEventListener('click', async ()
 
 // --- onboarding banner ---
 async function loadOnboard() {
-  if (localStorage.getItem('onboarded')) return;
   try {
-    const r = await fetch('/api/settings');
-    const d = await r.json();
+    const d = await fetch('/api/settings').then(r => r.json());
+    if (d.onboarded) return;  // already accepted / configured a dir
     const bar = document.getElementById('onboard-bar');
     bar.innerHTML = `<span>会议数据将存到 <code>${escapeHtml(d.data_dir)}</code>。</span><button id="ob-config" class="mini">更改位置</button><button id="ob-default" class="mini">就用这个</button>`;
     bar.classList.remove('hidden');
     document.getElementById('ob-config').addEventListener('click', () => settingsBtn.click());
-    document.getElementById('ob-default').addEventListener('click', () => { localStorage.setItem('onboarded', '1'); bar.classList.add('hidden'); });
+    document.getElementById('ob-default').addEventListener('click', async () => {
+      try { await fetch('/api/settings/onboard', { method: 'POST' }); } catch {}
+      bar.classList.add('hidden');
+    });
   } catch {}
 }
 

@@ -51,6 +51,7 @@ class ServerConfig:
 @dataclass
 class StorageConfig:
     data_dir: str = "./data"
+    onboarded: bool = False
 
 
 @dataclass
