@@ -42,6 +42,8 @@ dns_hosts.txt
 # Runtime logs & local config
 nohup.out
 *.log
+logs/*.out
+logs/*.pid
 *.bak
 wsl/
 .claude/settings.local.json
