@@ -21,6 +21,7 @@ Built on [FunASR](https://github.com/modelscope/FunASR) (speech recognition + sp
 - **Bring-your-own LLM** — local Ollama, or any OpenAI-compatible API (GLM / DeepSeek / Qwen / Kimi / OpenAI …)
 - **Configure everything in the browser** — data directory, LLM, hotwords, summary templates are all set via the web UI, no file editing
 - **Export** `.md` / `.txt` / `.srt` (md export uses real speaker names)
+- **Meeting library management** — tag meetings and filter by tag, rename any finished meeting, and delete either to a recoverable trash folder or permanently
 - **Runs locally** — recordings and results never leave your machine
 
 
@@ -106,6 +107,22 @@ A watcher checks every 60 s, so worst case add ~60 s. In a hurry, hit "Release m
 - **Reclaim side**: Linux glibc's `free()` + `malloc_trim(0)` actually **returns pages to the OS** (plus `torch.cuda.empty_cache()` for VRAM); macOS's malloc **doesn't proactively return** freed pages, so `ps` RSS barely moves even though the memory is reusable in-process.
 
 Don't judge "did unload work" by macOS RSS — check the model-state field in Settings → Service, or the `FunASR models unloaded (idle)` log line.
+
+## Project status (v0.3)
+
+The core pipeline works: upload → recognition (with speaker diarization + timestamps) → proofread → one-click polish + structured minutes; the meeting library now supports tags, rename, and delete.
+
+**New in v0.3 (meeting library)**:
+- **Tags + filter** — add multiple tags to a meeting, filter the list by tag (multi-select union); click a tag chip on a row to filter too
+- **Rename** — finished meetings (Ready to polish / Done / Error) can be renamed
+- **Two delete modes** — move to trash (`data/回收站/`, files kept and recoverable) or delete permanently; the trash path is shown before deleting
+- **Persistent onboarding** — the "Recordings will be saved to…" banner is saved to config.yaml once confirmed, so it no longer reappears when you switch browsers or clear cache
+
+**v0.2 resident mode**: `./run.sh -d` background running; FunASR model auto-unloads when idle (default 30 min, configurable; reclaims 18% RSS on Mac / 48% RSS + 57% VRAM on WSL+GPU); Settings → Service tab (model status/release, port/host + conflict detection, idle threshold).
+
+**v0.1 done**: speaker timeline, structured minutes (summary / decisions / action items / open questions as JSON), summary templates (preset + custom), pre-polish meeting background + common terms, speaker rename synced across views and exports, md / txt / srt export, live log, fixed layout.
+
+**Not yet**: manual speaker merge/split, editing the saved minutes, docx export, export options (with/without speaker or timestamps), agenda chapter splitting.
 
 ## Project status (v0.2)
 
