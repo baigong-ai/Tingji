@@ -122,21 +122,22 @@ The core pipeline works: upload → recognition (with speaker diarization + time
 
 **v0.1 done**: speaker timeline, structured minutes (summary / decisions / action items / open questions as JSON), summary templates (preset + custom), pre-polish meeting background + common terms, speaker rename synced across views and exports, md / txt / srt export, live log, fixed layout.
 
-**Not yet**: manual speaker merge/split, editing the saved minutes, docx export, export options (with/without speaker or timestamps), agenda chapter splitting.
+**Not yet**: manual speaker merge/split, editing the saved minutes, docx export, export options (with/without speaker or timestamps), agenda chapter splitting, **live streaming transcription (standard mode built-in; enhanced mode requires NVIDIA GPU)**.
 
-## Project status (v0.2)
+## Live transcription (planned)
 
-The core pipeline works: upload → recognition (with speaker diarization + timestamps) → proofread → one-click polish + structured minutes.
+In addition to "upload a recording then process it", Tingji will support live microphone transcription during meetings. When stopped, it writes the same raw transcript + audio as the upload flow, then goes through the same proofread → polish → summarize pipeline.
 
-**New in v0.2 (resident/background mode)**:
-- `./run.sh -d` background running (`--status` / `--stop`, PID + log)
-- **FunASR model auto-unloads when idle** (default 30 min, configurable; reclaims 18% RSS on Mac / 48% RSS + 57% VRAM on WSL+GPU)
-- Settings → Service tab: ASR status + manual unload, port/host config with conflict detection (lsof), idle threshold
-- `/api/asr/{status,unload}` observability + manual release
+Two modes target different hardware:
 
-**v0.1 done**: speaker timeline, structured minutes (summary / decisions / action items / open questions as JSON), summary templates (preset + custom), pre-polish meeting background + common terms, speaker rename synced across views and exports, md / txt / srt export, live log (persisted + per-stage timing), fixed layout (top bar and toolbar don't scroll away).
+| Mode | Name | Platforms | Hardware requirements |
+|---|---|---|---|
+| **Standard** | Built-in realtime engine | macOS / WSL / Linux | Apple Silicon M1+ or modern CPU, 8GB+ RAM |
+| **Enhanced** | GPU realtime engine | WSL/Linux + NVIDIA dGPU only | NVIDIA dGPU with 8GB+ VRAM (12GB+ recommended) |
 
-**Not yet**: manual speaker merge/split, editing the saved minutes, docx export, export options (with/without speaker or timestamps), agenda chapter splitting.
+- **Standard mode** is the default and works on every platform without extra setup.
+- **Enhanced mode** is for harder scenarios — dialects, accents, far-field — with higher accuracy; Mac is not supported and the UI selector will be greyed out with an explanation.
+- Enhanced mode requires a separate GPU sidecar service (`ws://localhost:10095`); deployment script will be provided after the core solution is solid.
 
 ## Workflow
 
@@ -153,14 +154,6 @@ The detail page has a fixed speaker timeline + toolbar (search, tabs) at the top
 - **Compare** — raw vs. polished side by side, aligned by timestamp; hover highlights, click seeks, playback follows
 
 Export `.md` / `.txt` / `.srt` from the top bar; click a speaker chip to rename it. "Re-polish" asks you to pick a template first.
-
-## Project status (v0.1)
-
-The core pipeline works: upload → recognition (with speaker diarization + timestamps) → proofread → one-click polish + structured minutes.
-
-**Done**: speaker timeline, structured minutes (summary / decisions / action items / open questions as JSON), summary templates (preset + custom), pre-polish meeting background + common terms, speaker rename synced across views and exports, md / txt / srt export, live log, fixed layout (top bar and toolbar don't scroll away).
-
-**Not yet**: manual speaker merge/split, editing the saved minutes, docx export, export options (with/without speaker or timestamps), agenda chapter splitting.
 
 ## Pre-downloading models (recommended)
 
