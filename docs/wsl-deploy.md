@@ -109,7 +109,66 @@ loading FunASR models from ./models (hub=ms, device=cuda:0)...
 
 如果看到 `device=cpu`，说明 torch 没装 CUDA 版，回到第 5 步。
 
-## 7. 访问服务
+## 7. 实时流式转写（v0.4）
+
+WSL + GPU 上同时支持两种实时模式：
+
+| 模式 | 说明 | 是否需要额外服务 |
+|---|---|---|
+| **标准模式** | 内置 `paraformer-zh-streaming` 流式引擎，直接可用 | 否 |
+| **增强模式** | 转发到 Fun-ASR-Nano vLLM GPU sidecar，方言/口音/远场更准 | 需单独启动 sidecar |
+
+标准模式无需配置，在首页点「实时记录」即可开始。
+
+### 增强模式 sidecar 部署
+
+增强模式需要单独启动一个 GPU sidecar 服务，默认监听 `ws://localhost:10095`。
+
+**环境要求（比主项目更高）**：
+- CUDA 12.6+（当前 Fun-ASR-Nano 需要 torch>=2.9、vllm>=0.12）
+- NVIDIA 独显 8GB+ 显存（推荐 12GB+）
+- 额外约 2.1GB 模型下载（`FunAudioLLM/Fun-ASR-Nano-2512`）
+
+**部署步骤示例**（在 WSL 里新建独立目录，避免和主项目依赖冲突）：
+
+```bash
+cd ~
+git clone --depth 1 https://github.com/FunAudioLLM/Fun-ASR.git
+git clone --depth 1 https://github.com/modelscope/FunASR.git FunASR-git
+
+mkdir -p funasr-sidecar && cd funasr-sidecar
+uv venv --python 3.12
+source .venv/bin/activate
+
+# 安装 CUDA 12.6 版 torch（按你的 CUDA 版本调整 index-url）
+uv pip install torch==2.9.0+cu126 torchaudio==2.9.0+cu126 \
+  --index-url https://download.pytorch.org/whl/cu126
+
+# 安装 vllm、funasr 源码及其依赖
+uv pip install 'vllm>=0.12.0' websockets regex
+uv pip install -e ~/FunASR-git
+
+# 启动 sidecar（加载约 2.1GB 模型）
+export PYTHONPATH="$HOME/FunASR-git:$PYTHONPATH"
+python ~/Fun-ASR/serve_realtime_ws.py \
+  --port 10095 --device cuda:0 --gpu-memory-utilization 0.6 --disable-spk
+```
+
+**听记切换到增强模式**：
+
+编辑 `config.yaml`：
+
+```yaml
+asr:
+  stream_engine: sidecar
+  sidecar_url: ws://localhost:10095
+```
+
+或进「设置 → 语音识别」切换（如界面已暴露该选项）。
+
+> 注意：WSL 当前若是 CUDA 12.1 + torch 2.5，无法直接运行 Fun-ASR-Nano vLLM sidecar；需先升级 CUDA 工具链到 12.6+ 并安装对应 torch/vllm。
+
+## 8. 访问服务
 
 ### 从 Windows 本机
 
@@ -153,7 +212,7 @@ netsh interface portproxy show v4tov4
 ipconfig | findstr IPv4
 ```
 
-## 8. 性能参考
+## 9. 性能参考
 
 GPU 推理速度（实测 RTX 4060 Ti，81 分钟中文音频）：
 
@@ -167,7 +226,7 @@ GPU 推理速度（实测 RTX 4060 Ti，81 分钟中文音频）：
 
 > 注：`app/asr.py` 必须把 `device` 显式传给 FunASR `AutoModel`，否则即使装了 CUDA 版 torch 也会默认跑 CPU（RTF 飙到 4 以上）。
 
-## 9. 故障排查
+## 10. 故障排查
 
 ### `nvidia-smi` 在 WSL 里找不到
 

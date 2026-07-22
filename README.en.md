@@ -21,6 +21,7 @@ Built on [FunASR](https://github.com/modelscope/FunASR) (speech recognition + sp
 - **Bring-your-own LLM** — local Ollama, or any OpenAI-compatible API (GLM / DeepSeek / Qwen / Kimi / OpenAI …)
 - **Configure everything in the browser** — data directory, LLM, hotwords, summary templates are all set via the web UI, no file editing
 - **Export** `.md` / `.txt` / `.srt` (md export uses real speaker names)
+- **Live streaming transcription** — open the microphone during a meeting; when stopped it writes the same raw transcript + audio as the upload flow, then goes through the same proofread → polish → summarize pipeline. Standard mode (built-in engine, all platforms) and Enhanced mode (GPU engine, WSL/Linux + NVIDIA dGPU) are both supported
 - **Meeting library management** — tag meetings and filter by tag, rename any finished meeting, and delete either to a recoverable trash folder or permanently
 - **Runs locally** — recordings and results never leave your machine
 
@@ -108,11 +109,17 @@ A watcher checks every 60 s, so worst case add ~60 s. In a hurry, hit "Release m
 
 Don't judge "did unload work" by macOS RSS — check the model-state field in Settings → Service, or the `FunASR models unloaded (idle)` log line.
 
-## Project status (v0.3)
+## Project status (v0.4)
 
-The core pipeline works: upload → recognition (with speaker diarization + timestamps) → proofread → one-click polish + structured minutes; the meeting library now supports tags, rename, and delete.
+The core pipeline works: upload → recognition (with speaker diarization + timestamps) → proofread → one-click polish + structured minutes; the meeting library supports tags, rename, and delete; live streaming transcription is now available.
 
-**New in v0.3 (meeting library)**:
+**New in v0.4 (live streaming transcription)**:
+- **Dual-engine live transcription** — open the microphone during a meeting; when stopped it automatically writes `audio_live.wav` + `raw.json` and enters the "Ready to polish" state, after which the proofread / polish / summarize flow is identical to the upload path
+- **Standard mode** — built-in FunASR streaming engine (`paraformer-zh-streaming`); works on macOS / WSL / Linux with no extra setup
+- **Enhanced mode** — forwards audio to a Fun-ASR-Nano vLLM GPU sidecar (`ws://localhost:10095`) for better accuracy on dialects, accents, and far-field audio; available only on WSL/Linux + NVIDIA dGPU; the UI greys it out on Mac with an explanation
+- **Unified entry point** — "Live" tab on the home page; the live page lets you switch engines and auto-detects whether the sidecar is ready
+
+**v0.3 done (meeting library)**:
 - **Tags + filter** — add multiple tags to a meeting, filter the list by tag (multi-select union); click a tag chip on a row to filter too
 - **Rename** — finished meetings (Ready to polish / Done / Error) can be renamed
 - **Two delete modes** — move to trash (`data/回收站/`, files kept and recoverable) or delete permanently; the trash path is shown before deleting
@@ -122,11 +129,11 @@ The core pipeline works: upload → recognition (with speaker diarization + time
 
 **v0.1 done**: speaker timeline, structured minutes (summary / decisions / action items / open questions as JSON), summary templates (preset + custom), pre-polish meeting background + common terms, speaker rename synced across views and exports, md / txt / srt export, live log, fixed layout.
 
-**Not yet**: manual speaker merge/split, editing the saved minutes, docx export, export options (with/without speaker or timestamps), agenda chapter splitting, **live streaming transcription (standard mode built-in; enhanced mode requires NVIDIA GPU)**.
+**Not yet**: manual speaker merge/split, editing the saved minutes, docx export, export options (with/without speaker or timestamps), agenda chapter splitting.
 
-## Live transcription (planned)
+## Live transcription
 
-In addition to "upload a recording then process it", Tingji will support live microphone transcription during meetings. When stopped, it writes the same raw transcript + audio as the upload flow, then goes through the same proofread → polish → summarize pipeline.
+In addition to "upload a recording then process it", Tingji supports live microphone transcription during meetings. When stopped, it writes the same raw transcript + audio as the upload flow, then goes through the same proofread → polish → summarize pipeline.
 
 Two modes target different hardware:
 
@@ -136,8 +143,8 @@ Two modes target different hardware:
 | **Enhanced** | GPU realtime engine | WSL/Linux + NVIDIA dGPU only | NVIDIA dGPU with 8GB+ VRAM (12GB+ recommended) |
 
 - **Standard mode** is the default and works on every platform without extra setup.
-- **Enhanced mode** is for harder scenarios — dialects, accents, far-field — with higher accuracy; Mac is not supported and the UI selector will be greyed out with an explanation.
-- Enhanced mode requires a separate GPU sidecar service (`ws://localhost:10095`); deployment script will be provided after the core solution is solid.
+- **Enhanced mode** is for harder scenarios — dialects, accents, far-field — with higher accuracy; Mac is not supported and the UI selector is greyed out with an explanation.
+- Enhanced mode requires a separate GPU sidecar service (`ws://localhost:10095`) on the same WSL/Linux machine. Switch by setting `asr.stream_engine: sidecar` and `asr.sidecar_url` in `config.yaml`.
 
 ## Workflow
 

@@ -109,7 +109,66 @@ loading FunASR models from ./models (hub=ms, device=cuda:0)...
 
 If you see `device=cpu`, torch isn't the CUDA build — go back to step 5.
 
-## 7. Access the service
+## 7. Live streaming transcription (v0.4)
+
+WSL + GPU supports both realtime modes:
+
+| Mode | Description | Extra service required |
+|---|---|---|
+| **Standard** | Built-in `paraformer-zh-streaming` engine, works out of the box | No |
+| **Enhanced** | Forwards to a Fun-ASR-Nano vLLM GPU sidecar, better for dialects / accents / far-field | Yes — sidecar must be started separately |
+
+Standard mode needs no configuration; click "Live" on the home page to start.
+
+### Enhanced mode sidecar deployment
+
+Enhanced mode requires a separate GPU sidecar service, default `ws://localhost:10095`.
+
+**Requirements (higher than the main project)**:
+- CUDA 12.6+ (Fun-ASR-Nano currently needs torch>=2.9 and vllm>=0.12)
+- NVIDIA dGPU with 8GB+ VRAM (12GB+ recommended)
+- ~2.1GB extra model download (`FunAudioLLM/Fun-ASR-Nano-2512`)
+
+**Example deployment** (use a separate directory to avoid dependency conflicts with the main project):
+
+```bash
+cd ~
+git clone --depth 1 https://github.com/FunAudioLLM/Fun-ASR.git
+git clone --depth 1 https://github.com/modelscope/FunASR.git FunASR-git
+
+mkdir -p funasr-sidecar && cd funasr-sidecar
+uv venv --python 3.12
+source .venv/bin/activate
+
+# Install CUDA 12.6 torch (adjust index-url to your CUDA version)
+uv pip install torch==2.9.0+cu126 torchaudio==2.9.0+cu126 \
+  --index-url https://download.pytorch.org/whl/cu126
+
+# Install vllm, funasr from source, and dependencies
+uv pip install 'vllm>=0.12.0' websockets regex
+uv pip install -e ~/FunASR-git
+
+# Start the sidecar (loads ~2.1GB model)
+export PYTHONPATH="$HOME/FunASR-git:$PYTHONPATH"
+python ~/Fun-ASR/serve_realtime_ws.py \
+  --port 10095 --device cuda:0 --gpu-memory-utilization 0.6 --disable-spk
+```
+
+**Switch Tingji to Enhanced mode**:
+
+Edit `config.yaml`:
+
+```yaml
+asr:
+  stream_engine: sidecar
+  sidecar_url: ws://localhost:10095
+```
+
+Or switch via "Settings → ASR" if the UI exposes it.
+
+> Note: if your WSL environment is currently CUDA 12.1 + torch 2.5, the Fun-ASR-Nano vLLM sidecar will not run; upgrade the CUDA toolkit to 12.6+ and install matching torch/vllm first.
+
+## 8. Access the service
 
 ### From the Windows host
 
@@ -153,7 +212,7 @@ Note: WSL's IP may change on each restart; you may need to reset the portproxy. 
 ipconfig | findstr IPv4
 ```
 
-## 8. Performance
+## 9. Performance
 
 GPU inference speed (measured on RTX 4060 Ti, 81-min Chinese audio):
 
@@ -167,7 +226,7 @@ Total ~7-10 min. CPU-mode ASR is far slower (RTF ≈ 0.25, ~1/4 of audio length)
 
 > Note: `app/asr.py` must pass `device` explicitly to the FunASR `AutoModel`, otherwise even with the CUDA torch build it defaults to CPU (RTF shoots past 4).
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 ### `nvidia-smi` not found inside WSL
 
