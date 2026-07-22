@@ -16,12 +16,13 @@ from pathlib import Path
 import yaml
 
 from fastapi import (
-    BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
+    BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile,
+    WebSocket, WebSocketDisconnect,
 )
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from app import asr, audio, llm, storage, tasks
+from app import asr, audio, llm, storage, stream, tasks
 from app.config import APIConfig, Config, LLMConfig, OllamaConfig, load_config
 from app.dns_hosts import install_if_present as install_dns_hosts
 
@@ -51,7 +52,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
 
 # Active pipeline statuses — idle watcher won't unload while any is in flight.
-_BUSY_STATUSES = {"pending", "converting", "asr_running",
+_BUSY_STATUSES = {"pending", "converting", "asr_running", "live_recording",
                   "llm_polishing", "llm_summarizing"}
 
 
@@ -86,11 +87,13 @@ def _idle_check(threshold_s: int) -> bool:
     """One pass of the idle-unload decision. Returns True if unloaded."""
     if not asr.is_loaded() or asr.is_busy():
         return False
+    if asr.is_stream_loaded() and asr.is_stream_busy():
+        return False
     # Don't unload while a pipeline task is queued or running — the model
     # may be needed any moment.
     if any(st.get("status") in _BUSY_STATUSES for st in tasks._tasks.values()):
         return False
-    idle = time.time() - asr.last_used_at()
+    idle = time.time() - max(asr.last_used_at(), asr.last_stream_used_at())
     if idle >= threshold_s:
         log.info("idle %.0fs ≥ %ds, unloading ASR model", idle, threshold_s)
         return asr.unload_model()
@@ -662,6 +665,42 @@ async def retry_llm(meeting_id: str, background_tasks: BackgroundTasks):
     return {"task_id": task_id}
 
 
+@app.post("/api/meetings/{meeting_id}/resume")
+async def resume_meeting(meeting_id: str, background_tasks: BackgroundTasks):
+    """Resume a stuck meeting task. Called by the hourly cron watcher."""
+    data = storage.get_meeting(meeting_id)
+    if data is None:
+        raise HTTPException(404)
+    meta = data.get("meta") or {}
+    status = meta.get("status")
+
+    # Already running in memory?
+    if any(st.get("meeting_id") == meeting_id and st.get("status") in _BUSY_STATUSES for st in tasks._tasks.values()):
+        return {"ok": False, "reason": "already_running", "status": status}
+
+    if status in {"pending", "converting", "asr_running"}:
+        state = tasks.register_task(meeting_id)
+        background_tasks.add_task(tasks.run_pipeline, meeting_id, config)
+        return {"ok": True, "action": "run_pipeline", "task_id": state["task_id"], "status": status}
+
+    if status in {"llm_polishing", "llm_summarizing"}:
+        task_id = await tasks.retry_llm(meeting_id, config)
+        return {"ok": True, "action": "retry_llm", "task_id": task_id, "status": status}
+
+    if status == "error":
+        err = (meta.get("error") or "").lower()
+        # ASR-stage errors can be retried by re-running the pipeline.
+        if any(k in err for k in ("convert", "asr", "识别", "音频")):
+            state = tasks.register_task(meeting_id)
+            background_tasks.add_task(tasks.run_pipeline, meeting_id, config)
+            return {"ok": True, "action": "run_pipeline", "task_id": state["task_id"], "status": status}
+        # Otherwise retry LLM.
+        task_id = await tasks.retry_llm(meeting_id, config)
+        return {"ok": True, "action": "retry_llm", "task_id": task_id, "status": status}
+
+    return {"ok": False, "reason": "no_action", "status": status}
+
+
 @app.put("/api/meetings/{meeting_id}/speakers")
 async def rename_speakers(meeting_id: str, payload: dict):
     if storage.get_meeting(meeting_id) is None:
@@ -858,3 +897,170 @@ def _srt_ts(ms: int) -> str:
     m, rem = divmod(rem, 60_000)
     s, ms = divmod(rem, 1000)
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+# ---------------------------------------------------------------------------
+# Realtime streaming endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.get("/live", response_class=HTMLResponse)
+async def live_page():
+    live_html = STATIC_DIR / "live.html"
+    if not live_html.exists():
+        raise HTTPException(404, "实时页面未找到")
+    return HTMLResponse(
+        live_html.read_text(encoding="utf-8"),
+        headers={"cache-control": "no-cache, no-store, must-revalidate"},
+    )
+
+
+@app.post("/api/live/start")
+async def live_start(payload: dict):
+    if config is None:
+        raise HTTPException(500, "config not loaded")
+    title = (payload.get("title") or "").strip() or "实时会议"
+    meeting_id = storage.create_live_meeting(title)
+    return {"meeting_id": meeting_id}
+
+
+@app.websocket("/ws/realtime/{meeting_id}")
+async def realtime_ws(ws: WebSocket, meeting_id: str):
+    if storage.get_meeting(meeting_id) is None:
+        await ws.close(code=4404)
+        return
+    await ws.accept()
+    if config is None:
+        await ws.send_text(json.dumps({"type": "error", "message": "config not loaded"}, ensure_ascii=False))
+        await ws.close()
+        return
+
+    engine = stream.make_engine(config)
+    storage.update_meta(meeting_id, status="live_recording")
+    tasks.append_log(meeting_id, "info", "实时记录开始")
+    seen = 0
+
+    async def _send(obj: dict):
+        try:
+            await ws.send_text(json.dumps(obj, ensure_ascii=False))
+        except Exception:
+            pass
+
+    try:
+        hotwords = stream.load_hotwords()
+        await engine.start(hotwords, config.asr.stream_language or None)
+        while True:
+            msg = await ws.receive()
+            if msg["type"] == "websocket.disconnect":
+                raise WebSocketDisconnect()
+            data = msg.get("bytes") or msg.get("text")
+            if data is None:
+                continue
+            if isinstance(data, str):
+                try:
+                    cmd = json.loads(data)
+                except Exception:
+                    continue
+                if cmd.get("action") == "stop":
+                    break
+                continue
+            result = await engine.feed(data)
+            asr.mark_stream_used()
+            if result.partial:
+                await _send({"type": "partial", "text": result.partial,
+                             "start_ms": result.partial_start_ms})
+            for s in result.sentences[seen:]:
+                await _send({"type": "sentence", **s})
+            seen = len(result.sentences)
+
+        final = await engine.finalize()
+        await tasks.finalize_live(meeting_id, stream.result_to_dict(final),
+                                  engine.pcm_bytes(), stream.SAMPLE_RATE, config)
+        await _send({"type": "final", "meeting_id": meeting_id,
+                     "sentences": final.sentences})
+    except WebSocketDisconnect:
+        tasks.append_log(meeting_id, "warn", "实时连接断开，尝试保存已录制内容")
+        try:
+            snap = engine.snapshot()
+            await tasks.finalize_live(meeting_id, stream.result_to_dict(snap),
+                                      engine.pcm_bytes(), stream.SAMPLE_RATE, config)
+        except Exception as e:
+            log.warning("finalize on disconnect failed: %s", e)
+    except Exception as e:
+        log.exception("realtime ws error")
+        storage.update_meta(meeting_id, status="error", error=str(e))
+        await _send({"type": "error", "message": str(e)})
+    finally:
+        try:
+            await engine.close()
+        except Exception:
+            pass
+
+
+@app.get("/api/realtime/info")
+async def realtime_info():
+    """Return availability of standard vs enhanced realtime engines."""
+    standard_ready = True
+    has_gpu = False
+    enhanced_ready = False
+    reason = "no_gpu"
+    message = "需要 NVIDIA 独显，当前环境不支持"
+    try:
+        import torch
+        has_gpu = torch.cuda.is_available()
+    except Exception:
+        pass
+    if has_gpu:
+        # Probe sidecar reachability.
+        sidecar_url = (config.asr.sidecar_url if config else "ws://localhost:10095").replace("ws://", "http://").replace("wss://", "https://")
+        try:
+            req = urllib.request.Request(sidecar_url, method="HEAD")
+            with urllib.request.urlopen(req, timeout=2):
+                enhanced_ready = True
+                reason = "ok"
+                message = "增强引擎已就绪"
+        except Exception:
+            reason = "sidecar_down"
+            message = "增强引擎服务未启动"
+    current = (config.asr.stream_engine if config else "funasr").lower()
+    return {
+        "standard": {"available": True, "ready": standard_ready},
+        "enhanced": {
+            "available": has_gpu,
+            "ready": enhanced_ready,
+            "reason": reason,
+            "has_gpu": has_gpu,
+            "message": message,
+        },
+        "current": current,
+    }
+
+
+@app.post("/api/settings/asr")
+async def set_asr_settings(payload: dict):
+    if config is None:
+        raise HTTPException(500, "config not loaded")
+    engine = payload.get("stream_engine")
+    if engine is not None:
+        engine = str(engine).lower()
+        if engine not in ("funasr", "sidecar"):
+            raise HTTPException(400, "stream_engine must be funasr or sidecar")
+        config.asr.stream_engine = engine
+    if "stream_language" in payload:
+        config.asr.stream_language = str(payload["stream_language"])
+    if "sidecar_url" in payload:
+        config.asr.sidecar_url = str(payload["sidecar_url"])
+    _persist_asr_config()
+    return {"ok": True, "stream_engine": config.asr.stream_engine}
+
+
+def _persist_asr_config() -> None:
+    p = Path("config.yaml")
+    if not p.exists():
+        return
+    raw = yaml.safe_load(p.read_text()) or {}
+    sec = raw.setdefault("asr", {})
+    sec["stream_engine"] = config.asr.stream_engine
+    sec["stream_language"] = config.asr.stream_language
+    sec["sidecar_url"] = config.asr.sidecar_url
+    p.write_text(yaml.safe_dump(raw, allow_unicode=True, sort_keys=False), encoding="utf-8")

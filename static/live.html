@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>实时记录 · 听记</title>
+  <link rel="stylesheet" href="/static/style.css?v=12">
+</head>
+<body>
+  <header>
+    <h1><a href="/" class="brand">听记</a><span class="brand-sub">实时会议记录</span></h1>
+    <div class="header-right">
+      <a href="/" class="header-btn">← 返回首页</a>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="live-card upload-card">
+      <h2>实时转录</h2>
+
+      <div id="engine-picker" class="engine-picker">
+        <div class="engine-option active" data-engine="funasr" id="opt-standard">
+          <div class="engine-radio">●</div>
+          <div class="engine-body">
+            <div class="engine-name">标准模式（推荐）</div>
+            <div class="engine-desc">内置引擎 · 所有电脑可用 · 开箱即用</div>
+          </div>
+        </div>
+        <div class="engine-option disabled" data-engine="sidecar" id="opt-enhanced">
+          <div class="engine-radio">○</div>
+          <div class="engine-body">
+            <div class="engine-name">增强模式</div>
+            <div class="engine-desc">GPU 引擎 · 方言 / 口音 / 远场更准</div>
+            <div class="engine-hint" id="enhanced-hint">检测中…</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="live-controls">
+        <label>
+          <span>会议标题</span>
+          <input id="live-title" type="text" placeholder="例如：产品周会">
+        </label>
+        <button id="live-start" class="primary">开始实时记录</button>
+        <button id="live-stop" class="hidden" disabled>停止并保存</button>
+      </div>
+
+      <div id="live-status-line" class="live-status">就绪，点击「开始」授权麦克风</div>
+      <div id="live-timer" class="live-timer hidden">00:00</div>
+
+      <ul id="live-lines" class="live-lines">
+        <li class="live-placeholder">实时字幕会显示在这里</li>
+      </ul>
+    </section>
+  </main>
+
+  <script src="/static/live.js?v=1"></script>
+</body>
+</html>

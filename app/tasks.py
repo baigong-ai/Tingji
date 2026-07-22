@@ -253,3 +253,40 @@ async def retry_llm(meeting_id: str, cfg) -> str:
             storage.update_meta(meeting_id, status="error", error=str(e))
             update(task_id, status="error", error=str(e))
     return task_id
+
+
+async def finalize_live(meeting_id: str, result: dict, pcm: bytes, sample_rate: int, cfg) -> None:
+    """Live stream stopped: persist audio + raw.json + meta(asr_done). Does not take _lock."""
+    t0 = time.time()
+    fname = storage.save_live_audio(meeting_id, pcm, sample_rate)
+    duration_ms = (len(pcm) // 2) * 1000 // sample_rate
+
+    # Second offline pass: run the full ASR pipeline on the saved wav to get
+    # accurate text, timestamps, and speaker diarization.
+    mdir = storage.meeting_dir(meeting_id)
+    wav_path = str(mdir / fname)
+    loop = asyncio.get_event_loop()
+    try:
+        raw = await loop.run_in_executor(None, asr.transcribe, wav_path, cfg.asr, _log_cb(meeting_id))
+    except Exception as e:
+        append_log(meeting_id, "error", f"实时离线二次识别失败：{e}")
+        # Fallback to whatever the streaming engine produced.
+        sentences = result.get("sentences") or []
+        raw = {
+            "text": "".join(s.get("text", "") for s in sentences),
+            "sentences": sentences,
+            "spk_count": len({s.get("spk", 0) for s in sentences}),
+        }
+
+    storage.save_raw(meeting_id, raw)
+    storage.update_meta(
+        meeting_id,
+        status="asr_done",
+        audio_file=fname,
+        audio_wav=fname,
+        duration_ms=duration_ms,
+        spk_count=raw.get("spk_count", 0),
+    )
+    _record_timing(meeting_id, "live", time.time() - t0)
+    append_log(meeting_id, "info",
+               f"实时记录完成：{len(raw.get('sentences', []))} 句，{raw.get('spk_count', 0)} 位说话人，{duration_ms / 1000:.0f}s")

@@ -40,6 +40,9 @@ class ASRConfig:
     batch_size_threshold_s: int
     hotword: str
     idle_unload_minutes: int = 30
+    stream_engine: str = "funasr"
+    stream_language: str = "中文"
+    sidecar_url: str = "ws://localhost:10095"
 
 
 @dataclass

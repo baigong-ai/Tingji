@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>听记 · 让录音变成文字</title>
-  <link rel="stylesheet" href="/static/style.css?v=11">
+  <link rel="stylesheet" href="/static/style.css?v=12">
 </head>
 <body>
   <header>
@@ -34,6 +34,22 @@
         <div class="step-desc">点「开始整理」生成会议纪要、决议与待办</div>
       </div>
     </div>
+
+    <section class="source-pick">
+      <a class="source-tab active" href="/">
+        <span class="source-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        </span>
+        上传录音转写
+      </a>
+      <a class="source-tab" href="/live">
+        <span class="source-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+        </span>
+        实时记录
+        <span class="source-sub">会议中直播</span>
+      </a>
+    </section>
 
     <section class="upload-card">
       <div id="dropzone" class="dropzone">
@@ -188,6 +204,6 @@
   </div>
 
   <script src="/static/access.js?v=1"></script>
-  <script src="/static/app.js?v=16"></script>
+  <script src="/static/app.js?v=17"></script>
 </body>
 </html>

@@ -1,6 +1,7 @@
 import json
 import re
 import shutil
+import wave
 from datetime import datetime
 from pathlib import Path
 
@@ -68,9 +69,46 @@ def create_meeting(title: str, audio_path: str, ext: str) -> str:
         "spk_count": 0,
         "error": None,
         "tags": [],
+        "source": "upload",
     }
     _write_meta(mdir, meta)
     return meeting_id
+
+
+def create_live_meeting(title: str) -> str:
+    """Create a meeting with no input audio for live streaming."""
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    meeting_id = f"{ts}-{_slugify(title)}"
+    mdir = DATA_DIR / meeting_id
+    mdir.mkdir(parents=True, exist_ok=True)
+    meta = {
+        "id": meeting_id,
+        "title": title,
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "audio_file": None,
+        "audio_wav": None,
+        "duration_ms": 0,
+        "status": "live_recording",
+        "spk_count": 0,
+        "error": None,
+        "tags": [],
+        "source": "live",
+    }
+    _write_meta(mdir, meta)
+    return meeting_id
+
+
+def save_live_audio(meeting_id: str, pcm: bytes, sample_rate: int = 16000) -> str:
+    """Write PCM int16 mono to a wav file directly (no shutil.copy to avoid 9p/drvfs EPERM)."""
+    mdir = DATA_DIR / meeting_id
+    fname = "audio_live.wav"
+    path = mdir / fname
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sample_rate)
+        w.writeframes(pcm)
+    return fname
 
 
 def list_meetings() -> list[dict]:
