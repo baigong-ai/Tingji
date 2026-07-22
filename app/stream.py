@@ -222,8 +222,12 @@ class FunASRStreamEngine(StreamEngine):
 class SidecarStreamEngine(StreamEngine):
     """Proxy to Fun-ASR-Nano vLLM sidecar (Plan A, WSL+GPU only).
 
-    Left as a stub skeleton; will be fully implemented once the core solution
-    using the built-in FunASR engine is solid.
+    Protocol (serve_realtime_ws.py):
+        START -> {"event":"started"}
+        HOTWORDS:word1,word2 -> {"event":"hotwords_set"}
+        LANGUAGE:zh -> {"event":"language_set"}
+        <PCM int16 16kHz mono chunks> -> {"sentences":[...],"partial":"..."}
+        STOP -> {"sentences":[...],"is_final":true}
     """
 
     def __init__(self, cfg: ASRConfig):
@@ -231,27 +235,122 @@ class SidecarStreamEngine(StreamEngine):
         self._audio = bytearray()
         self._sentences: list[dict] = []
         self._partial = ""
+        self._partial_start_ms = 0
+        self._ws = None
+        self._reader_task = None
+        self._closed = False
 
     async def start(self, hotwords: Optional[list[str]], language: Optional[str]) -> None:
-        raise NotImplementedError("增强模式（GPU sidecar）尚未实现")
+        asr._stream_busy = True
+        asr.mark_stream_used()
+        import websockets
+        try:
+            self._ws = await websockets.connect(self.url, max_size=10 * 1024 * 1024)
+        except Exception as e:
+            asr._stream_busy = False
+            asr.mark_stream_used()
+            raise RuntimeError(f"无法连接到增强模式引擎（{self.url}）：{e}") from e
+        await self._ws.send("START")
+        # drain initial ack
+        ack = await asyncio.wait_for(self._ws.recv(), timeout=5)
+        log.debug("sidecar ack: %s", ack)
+        if hotwords:
+            await self._ws.send("HOTWORDS:" + ",".join(hotwords))
+        if language:
+            await self._ws.send("LANGUAGE:" + language)
+        self._reader_task = asyncio.create_task(self._pump())
+
+    async def _pump(self) -> None:
+        """Background reader: merge sidecar sentences/partial into local state."""
+        if self._ws is None:
+            return
+        try:
+            async for msg in self._ws:
+                if isinstance(msg, bytes):
+                    continue
+                try:
+                    data = json.loads(msg)
+                except Exception:
+                    continue
+                new_sentences = data.get("sentences") or []
+                # Merge by (text, start, end) to avoid duplicates on retransmissions.
+                for s in new_sentences:
+                    item = {
+                        "text": s.get("text", ""),
+                        "start": int(s.get("start", 0)),
+                        "end": int(s.get("end", 0)),
+                        "spk": int(s.get("spk", 0)),
+                    }
+                    if not any(
+                        item["text"] == ex["text"]
+                        and item["start"] == ex["start"]
+                        and item["end"] == ex["end"]
+                        for ex in self._sentences
+                    ):
+                        self._sentences.append(item)
+                if "partial" in data:
+                    self._partial = data.get("partial", "")
+                    self._partial_start_ms = data.get("partial_start_ms", self.duration_ms())
+        except Exception as e:
+            log.warning("sidecar pump ended: %s", e)
 
     async def feed(self, pcm: bytes) -> StreamResult:
+        asr.mark_stream_used()
         self._audio.extend(pcm)
+        if self._ws is not None:
+            await self._ws.send(pcm)
         return self.snapshot()
 
     async def finalize(self) -> StreamResult:
+        if self._ws is not None:
+            await self._ws.send("STOP")
+            # Wait a short moment for final messages to arrive.
+            try:
+                await asyncio.wait_for(self._ws.recv(), timeout=5)
+            except Exception:
+                pass
+        if self._reader_task is not None:
+            self._reader_task.cancel()
+            try:
+                await self._reader_task
+            except asyncio.CancelledError:
+                pass
         return self.snapshot()
 
     def snapshot(self) -> StreamResult:
         return StreamResult(
             sentences=list(self._sentences),
             partial=self._partial,
-            partial_start_ms=0,
-            duration_ms=len(self._audio) // 2 * 1000 // SAMPLE_RATE,
+            partial_start_ms=self._partial_start_ms,
+            duration_ms=self.duration_ms(),
         )
+
+    def duration_ms(self) -> int:
+        return len(self._audio) // 2 * 1000 // SAMPLE_RATE
 
     def pcm_bytes(self) -> bytes:
         return bytes(self._audio)
+
+    def status(self) -> dict:
+        return {"type": "sidecar", "url": self.url, "duration_ms": self.duration_ms()}
+
+    async def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        if self._reader_task is not None:
+            self._reader_task.cancel()
+            try:
+                await self._reader_task
+            except asyncio.CancelledError:
+                pass
+        if self._ws is not None:
+            try:
+                await self._ws.close()
+            except Exception:
+                pass
+        asr._stream_busy = False
+        asr.mark_stream_used()
 
 
 def load_hotwords() -> Optional[list[str]]:

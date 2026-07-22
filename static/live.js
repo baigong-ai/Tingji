@@ -48,6 +48,8 @@ async function fetchEngineInfo() {
 
     optStd.classList.toggle("active", currentEngine === "funasr");
     optEnh.classList.toggle("active", currentEngine === "sidecar");
+    optStd.querySelector(".engine-radio").textContent = currentEngine === "funasr" ? "●" : "○";
+    optEnh.querySelector(".engine-radio").textContent = currentEngine === "sidecar" ? "●" : "○";
 
     if (!info.enhanced.available) {
       optEnh.classList.add("disabled");
@@ -80,6 +82,8 @@ async function selectEngine(engine) {
     currentEngine = engine;
     $("opt-standard").classList.toggle("active", engine === "funasr");
     $("opt-enhanced").classList.toggle("active", engine === "sidecar");
+    $("opt-standard").querySelector(".engine-radio").textContent = engine === "funasr" ? "●" : "○";
+    $("opt-enhanced").querySelector(".engine-radio").textContent = engine === "sidecar" ? "●" : "○";
   } catch (e) {
     setStatus("切换引擎失败：" + e.message);
   }

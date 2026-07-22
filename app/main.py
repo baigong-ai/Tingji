@@ -1011,14 +1011,16 @@ async def realtime_info():
     except Exception:
         pass
     if has_gpu:
-        # Probe sidecar reachability.
-        sidecar_url = (config.asr.sidecar_url if config else "ws://localhost:10095").replace("ws://", "http://").replace("wss://", "https://")
+        # Probe sidecar reachability via a short WebSocket handshake.
+        sidecar_url = config.asr.sidecar_url if config else "ws://localhost:10095"
         try:
-            req = urllib.request.Request(sidecar_url, method="HEAD")
-            with urllib.request.urlopen(req, timeout=2):
-                enhanced_ready = True
-                reason = "ok"
-                message = "增强引擎已就绪"
+            import websockets
+            coro = websockets.connect(sidecar_url, open_timeout=2, close_timeout=1)
+            ws = await asyncio.wait_for(coro, timeout=3)
+            await ws.close()
+            enhanced_ready = True
+            reason = "ok"
+            message = "增强引擎已就绪"
         except Exception:
             reason = "sidecar_down"
             message = "增强引擎服务未启动"
