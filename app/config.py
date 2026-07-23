@@ -40,12 +40,30 @@ class ASRConfig:
     batch_size_threshold_s: int
     hotword: str
     idle_unload_minutes: int = 30
+    stream_engine: str = "funasr"
+    stream_language: str = "中文"
+    sidecar_url: str = "ws://localhost:10095"
+
+
+@dataclass
+class SSLConfig:
+    enabled: bool = False
+    cert: str = "certs/cert.pem"
+    key: str = "certs/key.pem"
+    auto_generate: bool = True
 
 
 @dataclass
 class ServerConfig:
     host: str
     port: int
+    ssl: SSLConfig = None
+
+    def __post_init__(self):
+        if self.ssl is None:
+            self.ssl = SSLConfig()
+        elif isinstance(self.ssl, dict):
+            self.ssl = SSLConfig(**self.ssl)
 
 
 @dataclass

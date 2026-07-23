@@ -12,12 +12,17 @@ from app.config import ASRConfig
 log = logging.getLogger(__name__)
 
 _model = None
+_stream_model = None
+_punc_model = None
 _lock = Lock()
 _last_used = 0.0  # epoch seconds of last ASR activity (start or finish)
+_stream_last_used = 0.0
 _busy = False     # True while a transcription is in flight
+_stream_busy = False
 
 _LOCAL_DIR_NAMES = {
     "paraformer-zh": "paraformer-zh",
+    "paraformer-zh-streaming": "paraformer-zh-streaming",
     "fsmn-vad": "fsmn-vad",
     "ct-punc": "ct-punc",
     "cam++": "campp",
@@ -37,8 +42,16 @@ def is_loaded() -> bool:
     return _model is not None
 
 
+def is_stream_loaded() -> bool:
+    return _stream_model is not None
+
+
 def is_busy() -> bool:
     return _busy
+
+
+def is_stream_busy() -> bool:
+    return _stream_busy
 
 
 def last_used_at() -> float:
@@ -48,6 +61,24 @@ def last_used_at() -> float:
 def mark_used() -> None:
     global _last_used
     _last_used = time.time()
+
+
+def mark_stream_used() -> None:
+    global _stream_last_used
+    _stream_last_used = time.time()
+
+
+def last_stream_used_at() -> float:
+    return _stream_last_used
+
+
+def _pick_device() -> str:
+    import torch
+    if torch.cuda.is_available():
+        return "cuda:0"
+    if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
 
 
 def _rss_mb() -> int:
@@ -85,16 +116,17 @@ def unload_model() -> bool:
     Refuses while a transcription is in flight (_busy). Best-effort GC +
     torch cache clear afterwards so RSS actually drops.
     """
-    global _model
-    if _model is None:
+    global _model, _stream_model
+    if _model is None and _stream_model is None:
         return False
-    if _busy:
-        log.info("unload skipped: transcription in flight")
+    if _busy or _stream_busy:
+        log.info("unload skipped: transcription/stream in flight")
         return False
     with _lock:
-        if _model is None:
+        if _model is None and _stream_model is None:
             return False
         _model = None
+        _stream_model = None
     gc.collect()
     gc.collect()
     _release_os_memory()
@@ -114,6 +146,9 @@ def status() -> dict:
         "busy": _busy,
         "last_used_at": _last_used,
         "rss_mb": _rss_mb(),
+        "stream_loaded": _stream_model is not None,
+        "stream_busy": _stream_busy,
+        "stream_last_used_at": _stream_last_used,
     }
 
 
@@ -126,13 +161,7 @@ def get_model(cfg: ASRConfig):
             return _model
         os.environ["FUNASR_HUB"] = cfg.hub
         os.environ["MODELSCOPE_CACHE"] = cfg.cache_dir
-        import torch
-        if torch.cuda.is_available():
-            device = "cuda:0"
-        elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
-            device = "mps"
-        else:
-            device = "cpu"
+        device = _pick_device()
         log.info("loading FunASR models from %s (hub=%s, device=%s)...", cfg.cache_dir, cfg.hub, device)
         from funasr import AutoModel
         _model = AutoModel(
@@ -145,6 +174,56 @@ def get_model(cfg: ASRConfig):
         )
         log.info("FunASR models loaded")
     return _model
+
+
+def get_stream_model(cfg: ASRConfig):
+    """Lazy-load streaming paraformer (independent weights from offline paraformer-zh).
+
+    We only load the streaming ASR model here. VAD / punctuation / speaker
+    diarization are handled by the offline transcription pass after the live
+    session stops, because the streaming VAD+speaker APIs in FunASR have
+    incompatible chunk_size signatures for our simple realtime use-case.
+    """
+    global _stream_model
+    if _stream_model is not None:
+        return _stream_model
+    with _lock:
+        if _stream_model is not None:
+            return _stream_model
+        os.environ["FUNASR_HUB"] = cfg.hub
+        os.environ["MODELSCOPE_CACHE"] = cfg.cache_dir
+        device = _pick_device()
+        log.info("loading FunASR streaming model from %s (hub=%s, device=%s)...", cfg.cache_dir, cfg.hub, device)
+        from funasr import AutoModel
+        _stream_model = AutoModel(
+            model=_resolve_model("paraformer-zh-streaming", cfg.cache_dir),
+            disable_update=True,
+            device=device,
+        )
+        log.info("FunASR streaming model loaded")
+    return _stream_model
+
+
+def get_punc_model(cfg: ASRConfig):
+    """Lazy-load standalone ct-punc model for realtime caption punctuation."""
+    global _punc_model
+    if _punc_model is not None:
+        return _punc_model
+    with _lock:
+        if _punc_model is not None:
+            return _punc_model
+        os.environ["FUNASR_HUB"] = cfg.hub
+        os.environ["MODELSCOPE_CACHE"] = cfg.cache_dir
+        device = _pick_device()
+        log.info("loading FunASR punctuation model from %s (hub=%s, device=%s)...", cfg.cache_dir, cfg.hub, device)
+        from funasr import AutoModel
+        _punc_model = AutoModel(
+            model=_resolve_model("ct-punc", cfg.cache_dir),
+            disable_update=True,
+            device=device,
+        )
+        log.info("FunASR punctuation model loaded")
+    return _punc_model
 
 
 def _load_hotword_str() -> str | None:

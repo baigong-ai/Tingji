@@ -150,9 +150,10 @@ function buildRow(m) {
   const tags = m.tags || [];
   const tagsHtml = tags.map(t =>
     `<button class="tag-chip sm" data-tag="${escapeHtml(t)}">${escapeHtml(t)}</button>`).join('');
+  const sourceBadge = m.source === 'live' ? '<span class="source-badge">实时</span>' : '';
   li.innerHTML = `
     <div class="hmain">
-      <span class="title">${escapeHtml(m.title)}</span>
+      <span class="title">${escapeHtml(m.title)}${sourceBadge}</span>
       <div class="meta">${fmtDate(m.created_at)}<span class="sep">·</span>${fmtDuration(m.duration_ms)}<span class="sep">·</span>${m.spk_count} 人</div>
       <div class="htags ${tags.length ? '' : 'hidden'}">${tagsHtml}</div>
     </div>
@@ -335,7 +336,7 @@ function fmtDuration(ms) {
 function statusLabel(s) {
   return {
     pending: '排队', converting: '转换中', asr_running: '识别中', asr_done: '待整理',
-    llm_polishing: '整理中', llm_summarizing: '总结中', done: '完成', error: '失败',
+    live_recording: '实时中', llm_polishing: '整理中', llm_summarizing: '总结中', done: '完成', error: '失败',
   }[s] || s;
 }
 

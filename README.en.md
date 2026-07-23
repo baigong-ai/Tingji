@@ -21,6 +21,7 @@ Built on [FunASR](https://github.com/modelscope/FunASR) (speech recognition + sp
 - **Bring-your-own LLM** — local Ollama, or any OpenAI-compatible API (GLM / DeepSeek / Qwen / Kimi / OpenAI …)
 - **Configure everything in the browser** — data directory, LLM, hotwords, summary templates are all set via the web UI, no file editing
 - **Export** `.md` / `.txt` / `.srt` (md export uses real speaker names)
+- **Live streaming transcription** — open the microphone during a meeting; when stopped it writes the same raw transcript + audio as the upload flow, then goes through the same proofread → polish → summarize pipeline. v0.4 ships Standard mode (built-in engine, all platforms), and Enhanced mode (GPU engine, better for dialects / accents / far-field) is coming in v0.5
 - **Meeting library management** — tag meetings and filter by tag, rename any finished meeting, and delete either to a recoverable trash folder or permanently
 - **Runs locally** — recordings and results never leave your machine
 
@@ -108,11 +109,17 @@ A watcher checks every 60 s, so worst case add ~60 s. In a hurry, hit "Release m
 
 Don't judge "did unload work" by macOS RSS — check the model-state field in Settings → Service, or the `FunASR models unloaded (idle)` log line.
 
-## Project status (v0.3)
+## Project status (v0.4)
 
-The core pipeline works: upload → recognition (with speaker diarization + timestamps) → proofread → one-click polish + structured minutes; the meeting library now supports tags, rename, and delete.
+The core pipeline works: upload → recognition (with speaker diarization + timestamps) → proofread → one-click polish + structured minutes; the meeting library supports tags, rename, and delete; live streaming transcription is now available.
 
-**New in v0.3 (meeting library)**:
+**New in v0.4 (live streaming transcription)**:
+- **Live streaming transcription** — open the microphone during a meeting; when stopped it automatically writes `audio_live.wav` + `raw.json` and enters the "Ready to polish" state, after which the proofread / polish / summarize flow is identical to the upload path
+- **Standard mode** — built-in FunASR streaming engine (`paraformer-zh-streaming`); works on macOS / WSL / Linux with no extra setup
+- **Enhanced mode (coming in v0.5)** — will forward audio to a Fun-ASR-Nano vLLM GPU sidecar (`ws://localhost:10095`) for better accuracy on dialects, accents, and far-field audio; available only on WSL/Linux + NVIDIA dGPU; the UI greys it out with a "v0.5" hint
+- **Unified entry point** — "Live" tab on the home page; the live page lets you switch engines (Enhanced is currently preview-only and cannot be selected)
+
+**v0.3 done (meeting library)**:
 - **Tags + filter** — add multiple tags to a meeting, filter the list by tag (multi-select union); click a tag chip on a row to filter too
 - **Rename** — finished meetings (Ready to polish / Done / Error) can be renamed
 - **Two delete modes** — move to trash (`data/回收站/`, files kept and recoverable) or delete permanently; the trash path is shown before deleting
@@ -124,19 +131,38 @@ The core pipeline works: upload → recognition (with speaker diarization + time
 
 **Not yet**: manual speaker merge/split, editing the saved minutes, docx export, export options (with/without speaker or timestamps), agenda chapter splitting.
 
-## Project status (v0.2)
+## Live transcription
 
-The core pipeline works: upload → recognition (with speaker diarization + timestamps) → proofread → one-click polish + structured minutes.
+In addition to "upload a recording then process it", Tingji supports live microphone transcription during meetings. When stopped, it writes the same raw transcript + audio as the upload flow, then goes through the same proofread → polish → summarize pipeline.
 
-**New in v0.2 (resident/background mode)**:
-- `./run.sh -d` background running (`--status` / `--stop`, PID + log)
-- **FunASR model auto-unloads when idle** (default 30 min, configurable; reclaims 18% RSS on Mac / 48% RSS + 57% VRAM on WSL+GPU)
-- Settings → Service tab: ASR status + manual unload, port/host config with conflict detection (lsof), idle threshold
-- `/api/asr/{status,unload}` observability + manual release
+Two modes target different hardware:
 
-**v0.1 done**: speaker timeline, structured minutes (summary / decisions / action items / open questions as JSON), summary templates (preset + custom), pre-polish meeting background + common terms, speaker rename synced across views and exports, md / txt / srt export, live log (persisted + per-stage timing), fixed layout (top bar and toolbar don't scroll away).
+| Mode | Name | Platforms | Hardware requirements |
+|---|---|---|---|
+| **Standard** | Built-in realtime engine | macOS / WSL / Linux | Apple Silicon M1+ or modern CPU, 8GB+ RAM |
+| **Enhanced** | GPU realtime engine | WSL/Linux + NVIDIA dGPU only (coming in v0.5) | NVIDIA dGPU with 8GB+ VRAM (12GB+ recommended) |
 
-**Not yet**: manual speaker merge/split, editing the saved minutes, docx export, export options (with/without speaker or timestamps), agenda chapter splitting.
+- **Standard mode** is the default and works on every platform without extra setup.
+- **Enhanced mode** is for harder scenarios — dialects, accents, far-field — with higher accuracy; it is currently greyed out in the UI with a "v0.5" hint and cannot be selected.
+- Once Enhanced mode ships, it will require a separate GPU sidecar service (`ws://localhost:10095`) on the same WSL/Linux machine. Switch by setting `asr.stream_engine: sidecar` and `asr.sidecar_url` in `config.yaml`. Deployment instructions will be updated in the [WSL deployment guide](docs/wsl-deploy.en.md).
+
+### HTTPS for LAN access (live mic)
+
+Browsers only allow microphone access in a secure context (localhost or HTTPS). To use live transcription from another device on the LAN:
+
+1. Edit `config.yaml`:
+
+```yaml
+server:
+  ssl:
+    enabled: true
+```
+
+2. Restart the service. `run.sh` will automatically generate a self-signed certificate at `certs/cert.pem` and `certs/key.pem`.
+3. On the LAN device, open `https://<server-ip>:8000/live`.
+4. The first time, the browser will warn about the self-signed certificate. Click "Advanced" → "Proceed" (on iOS Safari, go to Settings → General → About → Certificate Trust Settings and trust the certificate).
+
+> Self-signed certificates are intended for LAN use only. Do not expose them to the public internet or commit them (`certs/` is in `.gitignore`).
 
 ## Workflow
 
@@ -153,14 +179,6 @@ The detail page has a fixed speaker timeline + toolbar (search, tabs) at the top
 - **Compare** — raw vs. polished side by side, aligned by timestamp; hover highlights, click seeks, playback follows
 
 Export `.md` / `.txt` / `.srt` from the top bar; click a speaker chip to rename it. "Re-polish" asks you to pick a template first.
-
-## Project status (v0.1)
-
-The core pipeline works: upload → recognition (with speaker diarization + timestamps) → proofread → one-click polish + structured minutes.
-
-**Done**: speaker timeline, structured minutes (summary / decisions / action items / open questions as JSON), summary templates (preset + custom), pre-polish meeting background + common terms, speaker rename synced across views and exports, md / txt / srt export, live log, fixed layout (top bar and toolbar don't scroll away).
-
-**Not yet**: manual speaker merge/split, editing the saved minutes, docx export, export options (with/without speaker or timestamps), agenda chapter splitting.
 
 ## Pre-downloading models (recommended)
 
