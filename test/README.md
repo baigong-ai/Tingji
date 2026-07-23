@@ -7,7 +7,7 @@ uv pip install -e ".[dev]"
 pytest -v
 ```
 
-79 个测试覆盖 config / audio / storage / llm / asr / tasks / main 全部模块。其中 v0.2 新增覆盖：ASR 模型卸载（`unload_model` idle/busy/noop、`mark_used`、`status`）、端口冲突检测（空闲/占用/自身/非法）、服务设置 roundtrip + `restart_required`、idle watcher 决策（`_idle_check` 三种情形）+ 完整 asyncio 循环跑 `_idle_watcher` 的集成测试。v0.3 新增覆盖：会议标签设置与去重（`/api/meetings/{id}/tags`）、已处理会议重命名（`/api/meetings/{id}/title`）、删除二选一（移到 `data/回收站/` 保留文件 / 彻底删除）、回收站不被当作会议列出、onboard 标记 roundtrip。
+79 个测试覆盖 config / audio / storage / llm / asr / tasks / main 全部模块。其中 v0.2 新增覆盖：ASR 模型卸载（`unload_model` idle/busy/noop、`mark_used`、`status`）、端口冲突检测（空闲/占用/自身/非法）、服务设置 roundtrip + `restart_required`、idle watcher 决策（`_idle_check` 三种情形）+ 完整 asyncio 循环跑 `_idle_watcher` 的集成测试。v0.3 新增覆盖：会议标签设置与去重（`/api/meetings/{id}/tags`）、已处理会议重命名（`/api/meetings/{id}/title`）、删除二选一（移到 `data/回收站/` 保留文件 / 彻底删除）、回收站不被当作会议列出、onboard 标记 roundtrip。v0.4 新增覆盖：实时会议创建（`create_live_meeting`）、实时录音落盘（`save_live_audio`）、`finalize_live` 输出形状、`/api/realtime/info` 返回标准/增强可用性、WebSocket 实时会话状态机（`live_recording` 进入/离开）、引擎工厂（`make_engine` 默认 funasr）。
 
 ## 冒烟脚本
 
