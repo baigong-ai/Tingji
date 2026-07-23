@@ -9,11 +9,6 @@ let startTime = 0;
 let currentEngine = "funasr";
 let engineReady = false;
 
-const SPK_COLORS = [
-  "var(--spk-0)", "var(--spk-1)", "var(--spk-2)",
-  "var(--spk-3)", "var(--spk-4)", "var(--spk-5)", "var(--spk-6)",
-];
-
 const $ = (id) => document.getElementById(id);
 
 function esc(s) {
@@ -135,8 +130,7 @@ function appendSentence(s) {
 
   const li = document.createElement("li");
   li.className = "live-line";
-  const color = SPK_COLORS[s.spk % SPK_COLORS.length];
-  li.innerHTML = `<span class="live-spk" style="color:${color};border-color:${color}">说话人${s.spk}</span><span class="live-text">${esc(s.text)}</span>`;
+  li.innerHTML = `<span class="live-text">${esc(s.text)}</span>`;
   ul.appendChild(li);
   ul.scrollTop = ul.scrollHeight;
 }
@@ -149,7 +143,7 @@ function updatePartial(text) {
     if (placeholder) placeholder.remove();
     partial = document.createElement("li");
     partial.className = "live-line live-partial";
-    partial.innerHTML = `<span class="live-spk" style="color:var(--ink-ghost);border-color:var(--ink-ghost)">…</span><span class="live-text"></span>`;
+    partial.innerHTML = `<span class="live-text"></span>`;
     ul.appendChild(partial);
   }
   partial.querySelector(".live-text").textContent = text;
