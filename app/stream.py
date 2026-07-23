@@ -74,6 +74,8 @@ class FunASRStreamEngine(StreamEngine):
         self._partial = ""
         self._partial_start_ms = 0
         self._text_so_far = ""
+        self._last_full_text = ""
+        self._last_punc_len = 0
         self._sentence_start_ms = 0
         self._closed = False
         self._hotword_str: Optional[str] = None
@@ -139,8 +141,26 @@ class FunASRStreamEngine(StreamEngine):
             out.append(buf.strip())
         return out
 
-    def _append_sentences(self, text: str) -> None:
-        """Lock completed sentences from the streaming text."""
+    def _add_text(self, text: str) -> None:
+        """Merge streaming text, handling both incremental and full returns."""
+        if not text:
+            return
+        if text == self._last_full_text:
+            return
+        if not self._last_full_text:
+            self._text_so_far += text
+        elif text.startswith(self._last_full_text):
+            self._text_so_far += text[len(self._last_full_text):]
+        elif self._last_full_text.endswith(text):
+            pass  # shorter repeat, ignore
+        else:
+            # True incremental chunk with no common prefix; append as-is.
+            self._text_so_far += text
+        self._last_full_text = text
+
+    def _append_sentences(self) -> None:
+        """Lock completed sentences from the accumulated streaming text."""
+        text = self._text_so_far
         if not text:
             return
         # Keep only newly completed sentences (text that already ended with punctuation
@@ -152,6 +172,8 @@ class FunASRStreamEngine(StreamEngine):
         locked = split[:-1]
         if _SENTENCE_END_RE.search(split[-1]):
             locked = split
+        if not locked:
+            return
         base_ms = self._sentence_start_ms
         for s in locked:
             if not any(s == ex["text"] for ex in self._sentences):
@@ -163,10 +185,38 @@ class FunASRStreamEngine(StreamEngine):
                     "spk": 0,
                 })
                 base_ms += dur
+        # Drop locked text from the accumulation buffer.
+        last = locked[-1]
+        idx = text.rfind(last)
+        if idx >= 0:
+            self._text_so_far = text[idx + len(last):].strip()
         self._sentence_start_ms = base_ms
 
-    def _update_partial(self, text: str) -> None:
-        self._partial = text
+    def _punctuate(self) -> None:
+        """Add punctuation to accumulated text with ct-punc for readable captions."""
+        if not self._text_so_far or len(self._text_so_far) <= self._last_punc_len + 15:
+            return
+        try:
+            model = asr.get_punc_model(self.cfg)
+            res = model.generate(input=self._text_so_far)
+            if res and isinstance(res, list):
+                first = res[0]
+                if isinstance(first, dict):
+                    text = first.get("text", "")
+                    if text:
+                        self._text_so_far = text
+                        self._last_punc_len = len(self._text_so_far)
+        except Exception as e:
+            log.warning("streaming punctuation failed: %s", e)
+
+    def _update_partial(self) -> None:
+        """Show only the tail of unconfirmed text so the live caption stays readable."""
+        text = self._text_so_far
+        max_len = 60
+        if len(text) <= max_len:
+            self._partial = text
+        else:
+            self._partial = text[-max_len:]
         self._partial_start_ms = self.duration_ms()
 
     def duration_ms(self) -> int:
@@ -181,8 +231,10 @@ class FunASRStreamEngine(StreamEngine):
             del self._chunk_buf[: CHUNK_STRIDE * 2]
             result = await asyncio.to_thread(self._decode, block, is_final=False)
             text = result.get("text", "") or ""
-            self._append_sentences(text)
-            self._update_partial(text)
+            self._add_text(text)
+            self._punctuate()
+            self._append_sentences()
+            self._update_partial()
         return self.snapshot()
 
     async def finalize(self) -> StreamResult:
@@ -191,10 +243,22 @@ class FunASRStreamEngine(StreamEngine):
             self._chunk_buf.clear()
             result = await asyncio.to_thread(self._decode, block, is_final=True)
             text = result.get("text", "") or ""
-            self._append_sentences(text)
-            self._update_partial(text)
+            self._add_text(text)
         # Flush cache with empty audio to get any trailing text.
         await asyncio.to_thread(self._decode, b"", is_final=True)
+        self._punctuate()
+        self._append_sentences()
+        if self._text_so_far:
+            # Lock any remaining text as a final sentence so it is not lost.
+            dur = max(len(self._text_so_far) * 220, 1000)
+            self._sentences.append({
+                "text": self._text_so_far,
+                "start": self._sentence_start_ms,
+                "end": self._sentence_start_ms + dur,
+                "spk": 0,
+            })
+            self._text_so_far = ""
+        self._update_partial()
         return self.snapshot()
 
     def snapshot(self) -> StreamResult:

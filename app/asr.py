@@ -13,6 +13,7 @@ log = logging.getLogger(__name__)
 
 _model = None
 _stream_model = None
+_punc_model = None
 _lock = Lock()
 _last_used = 0.0  # epoch seconds of last ASR activity (start or finish)
 _stream_last_used = 0.0
@@ -201,6 +202,28 @@ def get_stream_model(cfg: ASRConfig):
         )
         log.info("FunASR streaming model loaded")
     return _stream_model
+
+
+def get_punc_model(cfg: ASRConfig):
+    """Lazy-load standalone ct-punc model for realtime caption punctuation."""
+    global _punc_model
+    if _punc_model is not None:
+        return _punc_model
+    with _lock:
+        if _punc_model is not None:
+            return _punc_model
+        os.environ["FUNASR_HUB"] = cfg.hub
+        os.environ["MODELSCOPE_CACHE"] = cfg.cache_dir
+        device = _pick_device()
+        log.info("loading FunASR punctuation model from %s (hub=%s, device=%s)...", cfg.cache_dir, cfg.hub, device)
+        from funasr import AutoModel
+        _punc_model = AutoModel(
+            model=_resolve_model("ct-punc", cfg.cache_dir),
+            disable_update=True,
+            device=device,
+        )
+        log.info("FunASR punctuation model loaded")
+    return _punc_model
 
 
 def _load_hotword_str() -> str | None:

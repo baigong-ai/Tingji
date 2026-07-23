@@ -111,16 +111,18 @@ If you see `device=cpu`, torch isn't the CUDA build — go back to step 5.
 
 ## 7. Live streaming transcription (v0.4)
 
-WSL + GPU supports both realtime modes:
+WSL + GPU supports Standard-mode live streaming transcription:
 
-| Mode | Description | Extra service required |
-|---|---|---|
-| **Standard** | Built-in `paraformer-zh-streaming` engine, works out of the box | No |
-| **Enhanced** | Forwards to a Fun-ASR-Nano vLLM GPU sidecar, better for dialects / accents / far-field | Yes — sidecar must be started separately |
+| Mode | Description | Extra service required | Availability |
+|---|---|---|---|
+| **Standard** | Built-in `paraformer-zh-streaming` engine, works out of the box | No | Available in v0.4 |
+| **Enhanced** | Forwards to a Fun-ASR-Nano vLLM GPU sidecar, better for dialects / accents / far-field | Yes — sidecar must be started separately | **Coming in v0.5** |
 
 Standard mode needs no configuration; click "Live" on the home page to start.
 
-### Enhanced mode sidecar deployment
+### Enhanced mode sidecar deployment (v0.5)
+
+> **Enhanced mode is coming in v0.5.** The deployment notes below are a preview only; you do not need to run them on the current version.
 
 Enhanced mode requires a separate GPU sidecar service, default `ws://localhost:10095`.
 

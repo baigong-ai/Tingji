@@ -93,6 +93,37 @@ PORT=$(grep -E '^\s*port:' config.yaml | awk '{print $2}' | tr -d '"')
 HOST=${HOST:-127.0.0.1}
 PORT=${PORT:-8000}
 
+# Read nested server.ssl config via Python so we don't need yq.
+SSL_INFO=$(.venv/bin/python -c "
+from app.config import load_config
+try:
+    cfg = load_config('config.yaml')
+    s = cfg.server.ssl
+    print(f'{int(s.enabled)}|{s.cert}|{s.key}|{int(s.auto_generate)}')
+except Exception:
+    print('0|certs/cert.pem|certs/key.pem|1')
+" 2>/dev/null || echo "0|certs/cert.pem|certs/key.pem|1")
+IFS='|' read -r SSL_ENABLED SSL_CERT SSL_KEY SSL_AUTO_GEN <<< "$SSL_INFO"
+
+SSL_ARGS=""
+SCHEME="http"
+if [ "$SSL_ENABLED" = "1" ]; then
+  if [ "$SSL_AUTO_GEN" = "1" ] && { [ ! -f "$SSL_CERT" ] || [ ! -f "$SSL_KEY" ]; }; then
+    echo "首次启用 HTTPS，自动生成自签名证书到 $(dirname "$SSL_CERT")..."
+    mkdir -p "$(dirname "$SSL_CERT")"
+    if ! openssl req -x509 -newkey rsa:2048 -keyout "$SSL_KEY" -out "$SSL_CERT" -days 365 -nodes -subj "/CN=tingji.local" >/dev/null 2>&1; then
+      echo "错误：无法生成自签名证书，请确认系统已安装 openssl"
+      exit 1
+    fi
+  fi
+  if [ ! -f "$SSL_CERT" ] || [ ! -f "$SSL_KEY" ]; then
+    echo "错误：SSL 证书或私钥不存在：cert=$SSL_CERT key=$SSL_KEY"
+    exit 1
+  fi
+  SSL_ARGS="--ssl-keyfile $SSL_KEY --ssl-certfile $SSL_CERT"
+  SCHEME="https"
+fi
+
 if grep -q 'mode: api' config.yaml && [ -z "${LLM_API_KEY:-}" ]; then
   echo "警告：LLM_API_KEY 未设置，LLM 整理/总结将不可用"
 fi
@@ -107,12 +138,12 @@ fi
 print_urls() {
   if [ "$HOST" = "0.0.0.0" ] || [ "$HOST" = "::" ]; then
     echo "可访问地址："
-    echo "  本机:    http://127.0.0.1:${PORT}"
+    echo "  本机:    ${SCHEME}://127.0.0.1:${PORT}"
     if command -v ipconfig >/dev/null 2>&1; then
       for iface in en0 en1 eth0 eth1; do
         ip=$(ipconfig getifaddr "$iface" 2>/dev/null || true)
         if [ -n "$ip" ]; then
-          echo "  局域网:  http://${ip}:${PORT}  (${iface})"
+          echo "  局域网:  ${SCHEME}://${ip}:${PORT}  (${iface})"
         fi
       done
     elif command -v ip >/dev/null 2>&1; then
@@ -120,14 +151,14 @@ print_urls() {
         | awk '/inet / && $2 !~ /^127/ {split($2, a, "/"); print a[1]}' \
         | sort -u \
         | while read -r ip; do
-            echo "  局域网:  http://${ip}:${PORT}"
+            echo "  局域网:  ${SCHEME}://${ip}:${PORT}"
           done
     fi
     if command -v hostname >/dev/null 2>&1; then
-      echo "  主机名:  http://$(hostname):${PORT}"
+      echo "  主机名:  ${SCHEME}://$(hostname):${PORT}"
     fi
   else
-    echo "可访问地址: http://${HOST}:${PORT}"
+    echo "可访问地址: ${SCHEME}://${HOST}:${PORT}"
   fi
 }
 
@@ -136,7 +167,7 @@ if [ "$ACTION" = "daemon" ]; then
   echo "后台启动服务，监听 ${HOST}:${PORT}（PID → ${PID_FILE}，日志 → ${LOG_FILE}）"
   # nohup + disown: SIGHUP ignored, survives terminal close. (setsid is not
   # in stock macOS, nohup is.)
-  nohup .venv/bin/uvicorn app.main:app --host "$HOST" --port "$PORT" \
+  nohup .venv/bin/uvicorn app.main:app --host "$HOST" --port "$PORT" $SSL_ARGS \
     >"$LOG_FILE" 2>&1 < /dev/null &
   DAEMON_PID=$!
   echo "$DAEMON_PID" > "$PID_FILE"
@@ -156,4 +187,4 @@ fi
 
 echo "启动服务，监听 ${HOST}:${PORT}"
 print_urls
-exec .venv/bin/uvicorn app.main:app --host "$HOST" --port "$PORT"
+exec .venv/bin/uvicorn app.main:app --host "$HOST" --port "$PORT" $SSL_ARGS

@@ -7,6 +7,7 @@ let seenSentences = 0;
 let timerInterval = null;
 let startTime = 0;
 let currentEngine = "funasr";
+let engineReady = false;
 
 const SPK_COLORS = [
   "var(--spk-0)", "var(--spk-1)", "var(--spk-2)",
@@ -53,21 +54,47 @@ async function fetchEngineInfo() {
 
     if (!info.enhanced.available) {
       optEnh.classList.add("disabled");
-      hint.textContent = info.enhanced.message || "需要 NVIDIA 独显，当前环境不支持";
+      if (info.enhanced.reason === "coming_soon") {
+        hint.textContent = info.enhanced.message || "v0.5 提供";
+        hint.title = "增强模式将在 v0.5 中提供，当前版本请使用标准模式。";
+      } else {
+        hint.textContent = info.enhanced.message || "需要 NVIDIA 独显，当前环境不支持";
+        hint.title = "增强模式需要 WSL/Linux + NVIDIA 独显（8GB+ 显存），当前环境不满足，请使用标准模式。";
+      }
+      engineReady = currentEngine !== "sidecar";
     } else if (!info.enhanced.ready) {
-      optEnh.classList.remove("disabled");
+      optEnh.classList.add("disabled");
       hint.textContent = info.enhanced.message || "增强引擎服务未启动";
+      hint.title = "增强引擎 sidecar 未运行。在 WSL 中参考 docs/wsl-deploy.md 启动 Fun-ASR-Nano sidecar（默认 ws://localhost:10095）。";
+      engineReady = currentEngine !== "sidecar";
     } else {
       optEnh.classList.remove("disabled");
       hint.textContent = "已就绪";
+      hint.title = "";
+      engineReady = true;
     }
 
     optStd.onclick = () => selectEngine("funasr");
     optEnh.onclick = () => {
       if (!optEnh.classList.contains("disabled")) selectEngine("sidecar");
     };
+
+    const statusLine = $("live-status-line");
+    if (!engineReady && currentEngine === "sidecar") {
+      if (info.enhanced.reason === "no_gpu") {
+        statusLine.textContent = "增强模式需要 NVIDIA 独显，当前环境不支持，请切换到标准模式。";
+      } else {
+        statusLine.textContent = "增强引擎未就绪，请切换到标准模式或启动 sidecar 服务。";
+      }
+    } else if (statusLine.textContent.includes("增强引擎未就绪") || statusLine.textContent.includes("增强模式需要")) {
+      statusLine.textContent = "就绪，点击「开始」授权麦克风";
+    }
+
+    updateStartButton();
   } catch (e) {
     setStatus("无法获取引擎信息：" + e.message);
+    engineReady = false;
+    updateStartButton();
   }
 }
 
@@ -84,8 +111,20 @@ async function selectEngine(engine) {
     $("opt-enhanced").classList.toggle("active", engine === "sidecar");
     $("opt-standard").querySelector(".engine-radio").textContent = engine === "funasr" ? "●" : "○";
     $("opt-enhanced").querySelector(".engine-radio").textContent = engine === "sidecar" ? "●" : "○";
+    await fetchEngineInfo();
   } catch (e) {
     setStatus("切换引擎失败：" + e.message);
+  }
+}
+
+function updateStartButton() {
+  const btn = $("live-start");
+  if (!engineReady) {
+    btn.disabled = true;
+    btn.title = currentEngine === "sidecar" ? "增强引擎未就绪，无法开始" : "";
+  } else {
+    btn.disabled = false;
+    btn.title = "";
   }
 }
 
@@ -123,6 +162,17 @@ function clearPartial() {
 }
 
 async function start() {
+  if (!window.isSecureContext) {
+    setStatus("当前地址不是安全上下文，浏览器不会授予麦克风权限。请使用 http://localhost:8000 访问，或在 config.yaml 中设置 server.ssl.enabled: true 后通过 HTTPS 访问。");
+    $("live-start").disabled = false;
+    return;
+  }
+  if (!engineReady) {
+    setStatus("当前选择的引擎未就绪，请切换到标准模式或启动增强引擎服务。");
+    $("live-start").disabled = false;
+    return;
+  }
+
   const title = $("live-title").value.trim() || "实时会议";
   $("live-start").disabled = true;
   setStatus("创建会议…");
@@ -151,8 +201,13 @@ async function start() {
         audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true },
       });
     } catch (e) {
-      setStatus("麦克风授权失败：" + e.message);
-      stop();
+      setStatus("麦克风授权失败：" + e.message + "（请检查浏览器权限设置，并确保通过 localhost 或 HTTPS 访问）");
+      $("live-start").disabled = false;
+      cleanupAudio();
+      if (ws) {
+        ws.close();
+        ws = null;
+      }
       return;
     }
 
@@ -228,6 +283,7 @@ window.addEventListener("beforeunload", () => {
   cleanupAudio();
 });
 
+$("live-start").disabled = true;
 $("live-start").addEventListener("click", start);
 $("live-stop").addEventListener("click", stop);
 

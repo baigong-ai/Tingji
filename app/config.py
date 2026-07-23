@@ -46,9 +46,24 @@ class ASRConfig:
 
 
 @dataclass
+class SSLConfig:
+    enabled: bool = False
+    cert: str = "certs/cert.pem"
+    key: str = "certs/key.pem"
+    auto_generate: bool = True
+
+
+@dataclass
 class ServerConfig:
     host: str
     port: int
+    ssl: SSLConfig = None
+
+    def __post_init__(self):
+        if self.ssl is None:
+            self.ssl = SSLConfig()
+        elif isinstance(self.ssl, dict):
+            self.ssl = SSLConfig(**self.ssl)
 
 
 @dataclass

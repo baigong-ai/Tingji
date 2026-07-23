@@ -440,17 +440,25 @@ def _detect_platform() -> dict:
     }
 
 
+def _server_ssl_enabled() -> bool:
+    if config is None:
+        return False
+    ssl = getattr(config.server, "ssl", None)
+    return bool(getattr(ssl, "enabled", False)) if ssl else False
+
+
 def _collect_server_info() -> dict:
     host = _RUNNING_HOST
     port = _RUNNING_PORT
     ips = _lan_ipv4s()
+    scheme = "https" if _server_ssl_enabled() else "http"
     urls = []
     if host in ("0.0.0.0", "::", ""):
         for ip in ips:
-            urls.append(f"http://{ip}:{port}")
-        urls.append(f"http://127.0.0.1:{port}")
+            urls.append(f"{scheme}://{ip}:{port}")
+        urls.append(f"{scheme}://127.0.0.1:{port}")
     else:
-        urls.append(f"http://{host}:{port}")
+        urls.append(f"{scheme}://{host}:{port}")
     return {
         "hostname": socket.gethostname(),
         "port": port,
@@ -531,10 +539,20 @@ async def asr_unload():
 async def get_server_settings():
     host = config.server.host if config else "0.0.0.0"
     port = config.server.port if config else 8000
+    ssl_cfg = getattr(config.server, "ssl", None) if config else None
+    ssl_out = {
+        "enabled": bool(getattr(ssl_cfg, "enabled", False)),
+        "cert": getattr(ssl_cfg, "cert", "certs/cert.pem"),
+        "key": getattr(ssl_cfg, "key", "certs/key.pem"),
+        "auto_generate": getattr(ssl_cfg, "auto_generate", True),
+    } if ssl_cfg else {
+        "enabled": False, "cert": "certs/cert.pem", "key": "certs/key.pem", "auto_generate": True,
+    }
     return {
         "host": host, "port": port,
         "running_port": _running_port(),
         "idle_unload_minutes": int(getattr(config.asr, "idle_unload_minutes", 30)) if config else 30,
+        "ssl": ssl_out,
         "restart_required": False,
     }
 
@@ -583,15 +601,40 @@ async def set_server_settings(payload: dict):
             config.asr.idle_unload_minutes = max(int(idle_min), 0)
         except (TypeError, ValueError):
             pass
-    _persist_server_config(host, port, config.asr.idle_unload_minutes)
+    ssl_changed = False
+    ssl_payload = payload.get("ssl")
+    if ssl_payload is not None:
+        ssl_cfg = getattr(config.server, "ssl", None)
+        if ssl_cfg is None:
+            from app.config import SSLConfig
+            config.server.ssl = SSLConfig()
+            ssl_cfg = config.server.ssl
+        new_enabled = ssl_payload.get("enabled")
+        if new_enabled is not None:
+            ssl_cfg.enabled = bool(new_enabled)
+            ssl_changed = True
+        if ssl_payload.get("cert") is not None:
+            ssl_cfg.cert = str(ssl_payload["cert"])
+            ssl_changed = True
+        if ssl_payload.get("key") is not None:
+            ssl_cfg.key = str(ssl_payload["key"])
+            ssl_changed = True
+        if ssl_payload.get("auto_generate") is not None:
+            ssl_cfg.auto_generate = bool(ssl_payload["auto_generate"])
+            ssl_changed = True
+    _persist_server_config(
+        host, port, config.asr.idle_unload_minutes,
+        ssl=getattr(config.server, "ssl", None),
+    )
+    restart_required = (port != _running_port()) or ssl_changed
     return {
         "ok": True, "host": host, "port": port,
         "running_port": _running_port(),
-        "restart_required": port != _running_port(),
+        "restart_required": restart_required,
     }
 
 
-def _persist_server_config(host: str, port: int, idle_min: int) -> None:
+def _persist_server_config(host: str, port: int, idle_min: int, ssl=None) -> None:
     p = Path("config.yaml")
     if not p.exists():
         return
@@ -599,6 +642,13 @@ def _persist_server_config(host: str, port: int, idle_min: int) -> None:
     raw.setdefault("server", {})["host"] = host
     raw["server"]["port"] = port
     raw.setdefault("asr", {})["idle_unload_minutes"] = idle_min
+    if ssl is not None:
+        raw["server"]["ssl"] = {
+            "enabled": bool(ssl.enabled),
+            "cert": str(ssl.cert),
+            "key": str(ssl.key),
+            "auto_generate": bool(ssl.auto_generate),
+        }
     p.write_text(yaml.safe_dump(raw, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
 
@@ -999,42 +1049,29 @@ async def realtime_ws(ws: WebSocket, meeting_id: str):
 
 @app.get("/api/realtime/info")
 async def realtime_info():
-    """Return availability of standard vs enhanced realtime engines."""
+    """Return availability of standard vs enhanced realtime engines.
+
+    Enhanced mode is deferred to v0.5 while the sidecar deployment and
+    end-to-end validation are finalized. For v0.4 only standard mode is
+    exposed in the UI.
+    """
     standard_ready = True
     has_gpu = False
-    enhanced_ready = False
-    reason = "no_gpu"
-    message = "需要 NVIDIA 独显，当前环境不支持"
     try:
         import torch
         has_gpu = torch.cuda.is_available()
     except Exception:
         pass
-    if has_gpu:
-        # Probe sidecar reachability via a short WebSocket handshake.
-        sidecar_url = config.asr.sidecar_url if config else "ws://localhost:10095"
-        try:
-            import websockets
-            coro = websockets.connect(sidecar_url, open_timeout=2, close_timeout=1)
-            ws = await asyncio.wait_for(coro, timeout=3)
-            await ws.close()
-            enhanced_ready = True
-            reason = "ok"
-            message = "增强引擎已就绪"
-        except Exception:
-            reason = "sidecar_down"
-            message = "增强引擎服务未启动"
-    current = (config.asr.stream_engine if config else "funasr").lower()
     return {
         "standard": {"available": True, "ready": standard_ready},
         "enhanced": {
-            "available": has_gpu,
-            "ready": enhanced_ready,
-            "reason": reason,
+            "available": False,
+            "ready": False,
+            "reason": "coming_soon",
             "has_gpu": has_gpu,
-            "message": message,
+            "message": "v0.5 提供",
         },
-        "current": current,
+        "current": "funasr",
     }
 
 

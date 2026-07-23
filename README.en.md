@@ -21,7 +21,7 @@ Built on [FunASR](https://github.com/modelscope/FunASR) (speech recognition + sp
 - **Bring-your-own LLM** — local Ollama, or any OpenAI-compatible API (GLM / DeepSeek / Qwen / Kimi / OpenAI …)
 - **Configure everything in the browser** — data directory, LLM, hotwords, summary templates are all set via the web UI, no file editing
 - **Export** `.md` / `.txt` / `.srt` (md export uses real speaker names)
-- **Live streaming transcription** — open the microphone during a meeting; when stopped it writes the same raw transcript + audio as the upload flow, then goes through the same proofread → polish → summarize pipeline. Standard mode (built-in engine, all platforms) and Enhanced mode (GPU engine, WSL/Linux + NVIDIA dGPU) are both supported
+- **Live streaming transcription** — open the microphone during a meeting; when stopped it writes the same raw transcript + audio as the upload flow, then goes through the same proofread → polish → summarize pipeline. v0.4 ships Standard mode (built-in engine, all platforms), and Enhanced mode (GPU engine, better for dialects / accents / far-field) is coming in v0.5
 - **Meeting library management** — tag meetings and filter by tag, rename any finished meeting, and delete either to a recoverable trash folder or permanently
 - **Runs locally** — recordings and results never leave your machine
 
@@ -114,10 +114,10 @@ Don't judge "did unload work" by macOS RSS — check the model-state field in Se
 The core pipeline works: upload → recognition (with speaker diarization + timestamps) → proofread → one-click polish + structured minutes; the meeting library supports tags, rename, and delete; live streaming transcription is now available.
 
 **New in v0.4 (live streaming transcription)**:
-- **Dual-engine live transcription** — open the microphone during a meeting; when stopped it automatically writes `audio_live.wav` + `raw.json` and enters the "Ready to polish" state, after which the proofread / polish / summarize flow is identical to the upload path
+- **Live streaming transcription** — open the microphone during a meeting; when stopped it automatically writes `audio_live.wav` + `raw.json` and enters the "Ready to polish" state, after which the proofread / polish / summarize flow is identical to the upload path
 - **Standard mode** — built-in FunASR streaming engine (`paraformer-zh-streaming`); works on macOS / WSL / Linux with no extra setup
-- **Enhanced mode** — forwards audio to a Fun-ASR-Nano vLLM GPU sidecar (`ws://localhost:10095`) for better accuracy on dialects, accents, and far-field audio; available only on WSL/Linux + NVIDIA dGPU; the UI greys it out on Mac with an explanation
-- **Unified entry point** — "Live" tab on the home page; the live page lets you switch engines and auto-detects whether the sidecar is ready
+- **Enhanced mode (coming in v0.5)** — will forward audio to a Fun-ASR-Nano vLLM GPU sidecar (`ws://localhost:10095`) for better accuracy on dialects, accents, and far-field audio; available only on WSL/Linux + NVIDIA dGPU; the UI greys it out with a "v0.5" hint
+- **Unified entry point** — "Live" tab on the home page; the live page lets you switch engines (Enhanced is currently preview-only and cannot be selected)
 
 **v0.3 done (meeting library)**:
 - **Tags + filter** — add multiple tags to a meeting, filter the list by tag (multi-select union); click a tag chip on a row to filter too
@@ -140,11 +140,29 @@ Two modes target different hardware:
 | Mode | Name | Platforms | Hardware requirements |
 |---|---|---|---|
 | **Standard** | Built-in realtime engine | macOS / WSL / Linux | Apple Silicon M1+ or modern CPU, 8GB+ RAM |
-| **Enhanced** | GPU realtime engine | WSL/Linux + NVIDIA dGPU only | NVIDIA dGPU with 8GB+ VRAM (12GB+ recommended) |
+| **Enhanced** | GPU realtime engine | WSL/Linux + NVIDIA dGPU only (coming in v0.5) | NVIDIA dGPU with 8GB+ VRAM (12GB+ recommended) |
 
 - **Standard mode** is the default and works on every platform without extra setup.
-- **Enhanced mode** is for harder scenarios — dialects, accents, far-field — with higher accuracy; Mac is not supported and the UI selector is greyed out with an explanation.
-- Enhanced mode requires a separate GPU sidecar service (`ws://localhost:10095`) on the same WSL/Linux machine. Switch by setting `asr.stream_engine: sidecar` and `asr.sidecar_url` in `config.yaml`.
+- **Enhanced mode** is for harder scenarios — dialects, accents, far-field — with higher accuracy; it is currently greyed out in the UI with a "v0.5" hint and cannot be selected.
+- Once Enhanced mode ships, it will require a separate GPU sidecar service (`ws://localhost:10095`) on the same WSL/Linux machine. Switch by setting `asr.stream_engine: sidecar` and `asr.sidecar_url` in `config.yaml`. Deployment instructions will be updated in the [WSL deployment guide](docs/wsl-deploy.en.md).
+
+### HTTPS for LAN access (live mic)
+
+Browsers only allow microphone access in a secure context (localhost or HTTPS). To use live transcription from another device on the LAN:
+
+1. Edit `config.yaml`:
+
+```yaml
+server:
+  ssl:
+    enabled: true
+```
+
+2. Restart the service. `run.sh` will automatically generate a self-signed certificate at `certs/cert.pem` and `certs/key.pem`.
+3. On the LAN device, open `https://<server-ip>:8000/live`.
+4. The first time, the browser will warn about the self-signed certificate. Click "Advanced" → "Proceed" (on iOS Safari, go to Settings → General → About → Certificate Trust Settings and trust the certificate).
+
+> Self-signed certificates are intended for LAN use only. Do not expose them to the public internet or commit them (`certs/` is in `.gitignore`).
 
 ## Workflow
 

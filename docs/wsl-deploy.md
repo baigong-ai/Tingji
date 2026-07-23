@@ -111,16 +111,18 @@ loading FunASR models from ./models (hub=ms, device=cuda:0)...
 
 ## 7. 实时流式转写（v0.4）
 
-WSL + GPU 上同时支持两种实时模式：
+WSL + GPU 上支持标准模式实时流式转写：
 
-| 模式 | 说明 | 是否需要额外服务 |
-|---|---|---|
-| **标准模式** | 内置 `paraformer-zh-streaming` 流式引擎，直接可用 | 否 |
-| **增强模式** | 转发到 Fun-ASR-Nano vLLM GPU sidecar，方言/口音/远场更准 | 需单独启动 sidecar |
+| 模式 | 说明 | 是否需要额外服务 | 可用状态 |
+|---|---|---|---|
+| **标准模式** | 内置 `paraformer-zh-streaming` 流式引擎，直接可用 | 否 | v0.4 可用 |
+| **增强模式** | 转发到 Fun-ASR-Nano vLLM GPU sidecar，方言/口音/远场更准 | 需单独启动 sidecar | **v0.5 提供** |
 
 标准模式无需配置，在首页点「实时记录」即可开始。
 
-### 增强模式 sidecar 部署
+### 增强模式 sidecar 部署（v0.5）
+
+> **增强模式将在 v0.5 中提供**。下面的部署说明仅作预览，当前版本无需执行。
 
 增强模式需要单独启动一个 GPU sidecar 服务，默认监听 `ws://localhost:10095`。
 

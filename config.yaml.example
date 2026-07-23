@@ -26,6 +26,11 @@ llm:
 server:
   host: "0.0.0.0"
   port: 8000
+  ssl:
+    enabled: false          # 设为 true 启用 HTTPS，局域网访问时可授权麦克风
+    cert: "certs/cert.pem"  # 证书路径
+    key: "certs/key.pem"    # 私钥路径
+    auto_generate: true     # 首次启动时自动生成自签名证书
 
 storage:
   data_dir: "./data"
