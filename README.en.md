@@ -1,10 +1,8 @@
 English | [中文](README.md)
 
-# Kiku (听记 · Tingji)
+# Tingji (听记)
 
 > Local meeting transcription and minutes — drop in a recording and get the raw transcript, a cleaned-up transcript, and meeting minutes. All data stays on your own machine.
-
-The name **Kiku** comes from the Japanese 「聞く」 ("to listen") — the same root as the Chinese name 听记 ("Tingji", "listen & record").
 
 ![Home](docs/screenshot-home.png)
 
