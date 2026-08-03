@@ -59,12 +59,3 @@ def install_if_present(path: str = "dns_hosts.txt") -> bool:
     socket.gethostbyname = _patched_gethostbyname
     _INSTALLED = True
     return True
-
-
-def reset() -> None:
-    """For tests: remove the patch and clear mappings."""
-    global _INSTALLED, _MAPPING
-    socket.getaddrinfo = _ORIG_GETADDRINFO
-    socket.gethostbyname = _ORIG_GETHOSTBYNAME
-    _MAPPING = {}
-    _INSTALLED = False

@@ -148,7 +148,7 @@ async def upload(
         raise HTTPException(415, detail=f"不支持的音频格式：.{ext or '未知'}（仅支持 wav / mp3 / m4a / aac / flac / ogg / opus）")
     uploads_dir = storage.DATA_DIR / "uploads"
     uploads_dir.mkdir(parents=True, exist_ok=True)
-    tmp_path = uploads_dir / f"upload_{asyncio.get_event_loop().time()}.{ext}"
+    tmp_path = uploads_dir / f"upload_{time.time()}.{ext}"
     tmp_path.write_bytes(await audio.read())
     meeting_id = storage.create_meeting(title=title, audio_path=str(tmp_path), ext=ext)
     tmp_path.unlink(missing_ok=True)
@@ -212,21 +212,6 @@ async def mark_onboarded():
     config.storage.onboarded = True
     _persist_storage(onboarded=True)
     return {"ok": True}
-
-
-@app.post("/api/settings/test")
-async def test_settings(payload: dict):
-    d = (payload.get("data_dir") or "").strip()
-    if not d:
-        raise HTTPException(400, "请选择数据目录")
-    try:
-        p = Path(d).expanduser().resolve()
-        p.mkdir(parents=True, exist_ok=True)
-        (p / ".write_test").write_text("ok", encoding="utf-8")
-        (p / ".write_test").unlink()
-    except Exception as e:
-        raise HTTPException(400, f"该目录不可写：{e}")
-    return {"data_dir": str(p), "writable": True}
 
 
 def _copytree_files_only(src: Path, dst: Path) -> None:
@@ -1139,7 +1124,7 @@ async def realtime_ws(ws: WebSocket, meeting_id: str):
 async def realtime_info():
     """Return availability of standard vs enhanced realtime engines.
 
-    Enhanced mode is deferred to v0.5 while the sidecar deployment and
+    Enhanced mode is deferred to v0.6 while the sidecar deployment and
     end-to-end validation are finalized. For v0.4 only standard mode is
     exposed in the UI.
     """
@@ -1157,7 +1142,7 @@ async def realtime_info():
             "ready": False,
             "reason": "coming_soon",
             "has_gpu": has_gpu,
-            "message": "v0.5 提供",
+            "message": "v0.6 提供",
         },
         "current": "funasr",
     }
@@ -1173,9 +1158,9 @@ async def set_asr_settings(payload: dict):
         if engine not in ("funasr", "sidecar"):
             raise HTTPException(400, "stream_engine must be funasr or sidecar")
         if engine == "sidecar":
-            # Enhanced mode ships in v0.5 — the frontend greys it out, and the
+            # Enhanced mode ships in v0.6 — the frontend greys it out, and the
             # backend must enforce the same gate (don't allow selecting it).
-            raise HTTPException(400, "增强模式（GPU sidecar）将在 v0.5 提供，当前不可用")
+            raise HTTPException(400, "增强模式（GPU sidecar）将在 v0.6 提供，当前不可用")
         config.asr.stream_engine = engine
     if "stream_language" in payload:
         config.asr.stream_language = str(payload["stream_language"])

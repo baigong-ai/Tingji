@@ -155,3 +155,19 @@ def test_trash_name_validation(data_dir):
     assert storage.restore_from_trash("../x") is False
     assert storage.delete_from_trash("..") is False
     assert storage.restore_from_trash("not-an-id") is False
+
+
+def test_create_live_meeting_and_save_live_audio(data_dir):
+    import wave
+    mid = storage.create_live_meeting("实时会议")
+    meta = storage.get_meeting(mid)["meta"]
+    assert meta["status"] == "live_recording"
+    assert meta["audio_file"] is None and meta["source"] == "live"
+    pcm = b"\x01\x00" * 1600  # 0.1s of int16 mono @16kHz
+    fname = storage.save_live_audio(mid, pcm, 16000)
+    assert fname == "audio_live.wav"
+    with wave.open(str(data_dir / mid / fname)) as w:
+        assert w.getnchannels() == 1
+        assert w.getsampwidth() == 2
+        assert w.getframerate() == 16000
+        assert w.readframes(1600) == pcm

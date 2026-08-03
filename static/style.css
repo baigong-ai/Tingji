@@ -623,16 +623,6 @@ button.mini:hover:not(:disabled) {
   font-weight: 600;
   letter-spacing: 0.02em;
 }
-.modal-card .field { display: block; margin-bottom: 14px; }
-.modal-card .field span {
-  display: block;
-  font-size: 11px;
-  color: var(--ink-faint);
-  margin-bottom: 6px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  font-weight: 600;
-}
 .modal-card .hint {
   font-size: 12px;
   color: var(--ink-faint);
@@ -1015,15 +1005,6 @@ button.mini:hover:not(:disabled) {
 .live-line:last-child { border-bottom: none; }
 .live-line.live-partial { opacity: 0.65; }
 .live-line.live-partial .live-text { font-style: italic; }
-.live-spk {
-  flex: none;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid currentColor;
-  white-space: nowrap;
-}
 .live-text {
   font-size: 15px;
   line-height: 1.6;
@@ -1200,3 +1181,15 @@ button.mini.hact-del:hover:not(:disabled) {
 .trash-item .meta { font-size: 12px; color: var(--ink-faint); margin-top: 3px; }
 .trash-item .meta .sep { margin: 0 8px; color: var(--paper-edge); }
 .trash-item .hactions { margin-left: 12px; flex: none; }
+
+/* --- 响应式（首页 steps/container + 详情页对照，统一放这里） --- */
+@media (max-width: 720px) {
+  .compare-grid { grid-template-columns: 1fr; }
+  .steps { grid-template-columns: 1fr; }
+  .step:not(:last-child)::after { display: none; }
+  .step { padding: 12px 0; border-bottom: 1px solid var(--paper-edge); }
+  .step:last-child { border-bottom: none; }
+  header h1 { font-size: 17px; }
+  .container { padding: 0 16px; }
+  .rendered-md { padding: 20px; }
+}

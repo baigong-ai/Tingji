@@ -23,19 +23,10 @@ function fmtTs(ms) {
   const sec = s % 60;
   return `${m}:${String(sec).padStart(2,'0')}`;
 }
-function fmtDate(iso) {
-  if (!iso) return '--';
-  const d = new Date(iso);
-  if (isNaN(d)) return iso;
-  const pad = n => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
+// fmtDate / escapeHtml / statusLabel 见 static/common.js
 const SPEAKER_COLORS = ['#1f3a5f', '#4a6741', '#b78038', '#c0392b', '#8e44ad', '#2c7a7b', '#a04900'];
 function spkColor(spk) { return SPEAKER_COLORS[Number(spk) % SPEAKER_COLORS.length] || SPEAKER_COLORS[0]; }
 function spkClass(spk) { return `spk-${Number(spk) % SPEAKER_COLORS.length}`; }
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-}
 function spkLabel(spk) {
   return speakerNames[String(spk)] || speakerNames[spk] || `说话人${spk}`;
 }
@@ -43,10 +34,11 @@ function applySpeakerNamesToMd(md) {
   if (!md) return md;
   return md.replace(/说话人\s*(\d+)/g, (m, n) => speakerNames[n] ? speakerNames[n] : `说话人${n}`);
 }
+// markdown 来源不可信（LLM 输出 / 用户输入的说话人名），先转义再解析，禁掉 inline HTML
 function renderMd(md) {
   md = applySpeakerNamesToMd(md);
   if (!md) return '<p class="empty-state">（暂无内容）</p>';
-  return marked.parse(md);
+  return marked.parse(escapeHtml(md));
 }
 function applySpkToText(s) {
   return String(s).replace(/说话人\s*(\d+)/g, (m, n) => speakerNames[n] ? speakerNames[n] : m);
@@ -346,7 +338,7 @@ function renderProcessedSegments(md, sentences) {
       block = '## ' + block;
     }
     block = applySpeakerNamesToMd(block);
-    html += `<div class="proc-seg" data-start="${start}" data-pair="${pair}">${marked.parse(block)}</div>`;
+    html += `<div class="proc-seg" data-start="${start}" data-pair="${pair}">${marked.parse(escapeHtml(block))}</div>`;
   }
   return html;
 }
@@ -388,7 +380,7 @@ function renderCompare(md, sentences) {
     for (let i = 0; i < blocks.length; i++) {
       const end = i + 1 < starts.length ? starts[i + 1] : lastEnd;
       segs.push({ start: starts[i], end });
-      procHtml += `<div class="compare-proc-block" data-start="${starts[i]}" data-end="${end}">${marked.parse(applySpeakerNamesToMd(blocks[i]))}</div>`;
+      procHtml += `<div class="compare-proc-block" data-start="${starts[i]}" data-end="${end}">${marked.parse(escapeHtml(applySpeakerNamesToMd(blocks[i])))}</div>`;
     }
   } else {
     procHtml = '<p class="empty-state">（暂无整理版）</p>';
@@ -911,14 +903,6 @@ async function refreshLog() {
   } catch {}
 }
 
-function bindScrollSync() {
-  // 旧的两栏独立滚动同步已废弃：对照改为按行对齐后无需联动
-}
-
-function statusLabel(s) {
-  return {done:'完成', asr_done:'待整理', error:'失败', pending:'处理中', converting:'处理中', asr_running:'处理中', llm_polishing:'处理中', llm_summarizing:'处理中'}[s] || s;
-}
-
 async function load() {
   try {
     const r = await fetch(`/api/meetings/${meetingId}`);
@@ -956,7 +940,6 @@ async function load() {
     }
     if (meta.status === 'error') resumeBtn.classList.remove('hidden');
     renderAll();
-    bindScrollSync();
   } catch (e) {
     alert('加载失败: ' + e.message);
   }

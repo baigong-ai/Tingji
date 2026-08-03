@@ -3,7 +3,6 @@ let mediaStream = null;
 let audioCtx = null;
 let proc = null;
 let meetingId = null;
-let seenSentences = 0;
 let timerInterval = null;
 let startTime = 0;
 let currentEngine = "funasr";
@@ -11,11 +10,7 @@ let engineReady = false;
 
 const $ = (id) => document.getElementById(id);
 
-function esc(s) {
-  const div = document.createElement("div");
-  div.textContent = s;
-  return div.innerHTML;
-}
+// escapeHtml 见 static/common.js
 
 function setStatus(msg) {
   $("live-status-line").textContent = msg;
@@ -50,8 +45,8 @@ async function fetchEngineInfo() {
     if (!info.enhanced.available) {
       optEnh.classList.add("disabled");
       if (info.enhanced.reason === "coming_soon") {
-        hint.textContent = info.enhanced.message || "v0.5 提供";
-        hint.title = "增强模式将在 v0.5 中提供，当前版本请使用标准模式。";
+        hint.textContent = info.enhanced.message || "v0.6 提供";
+        hint.title = "增强模式将在 v0.6 中提供，当前版本请使用标准模式。";
       } else {
         hint.textContent = info.enhanced.message || "需要 NVIDIA 独显，当前环境不支持";
         hint.title = "增强模式需要 WSL/Linux + NVIDIA 独显（8GB+ 显存），当前环境不满足，请使用标准模式。";
@@ -130,7 +125,7 @@ function appendSentence(s) {
 
   const li = document.createElement("li");
   li.className = "live-line";
-  li.innerHTML = `<span class="live-text">${esc(s.text)}</span>`;
+  li.innerHTML = `<span class="live-text">${escapeHtml(s.text)}</span>`;
   ul.appendChild(li);
   ul.scrollTop = ul.scrollHeight;
 }
@@ -234,7 +229,6 @@ async function start() {
     if (d.type === "sentence") {
       clearPartial();
       appendSentence(d);
-      seenSentences++;
     } else if (d.type === "partial") {
       updatePartial(d.text);
     } else if (d.type === "final") {

@@ -21,7 +21,7 @@ Built on [FunASR](https://github.com/modelscope/FunASR) (speech recognition + sp
 - **Bring-your-own LLM** — local Ollama, or any OpenAI-compatible API (GLM / DeepSeek / Qwen / Kimi / OpenAI …)
 - **Configure everything in the browser** — data directory, LLM, hotwords, summary templates are all set via the web UI, no file editing
 - **Export** `.md` / `.txt` / `.srt` (md export uses real speaker names)
-- **Live streaming transcription** — open the microphone during a meeting; when stopped it writes the same raw transcript + audio as the upload flow, then goes through the same proofread → polish → summarize pipeline. v0.4 ships Standard mode (built-in engine, all platforms), and Enhanced mode (GPU engine, better for dialects / accents / far-field) is coming in v0.5
+- **Live streaming transcription** — open the microphone during a meeting; when stopped it writes the same raw transcript + audio as the upload flow, then goes through the same proofread → polish → summarize pipeline. v0.4 ships Standard mode (built-in engine, all platforms), and Enhanced mode (GPU engine, better for dialects / accents / far-field) is coming in v0.6
 - **Meeting library management** — tag meetings and filter by tag, rename any finished meeting, delete to trash or permanently; the trash view can restore or permanently delete
 - **Edit the minutes afterwards** — both the polished text and the summary can be edited and saved (the summary supports per-section structured editing as well as plain markdown)
 - **Resume stuck tasks** — if a restart leaves a task stuck, click "Resume task" on the detail page; an optional hourly cron can do it automatically
@@ -121,14 +121,21 @@ A watcher checks every 60 s, so worst case add ~60 s. In a hurry, hit "Release m
 
 Don't judge "did unload work" by macOS RSS — check the model-state field in Settings → Service, or the `FunASR models unloaded (idle)` log line.
 
-## Project status (v0.4)
+## Project status (v0.5)
 
-The core pipeline works: upload → recognition (with speaker diarization + timestamps) → proofread → one-click polish + structured minutes; the meeting library supports tags, rename, and delete; live streaming transcription is now available.
+The core pipeline works: upload → recognition (with speaker diarization + timestamps) → proofread → one-click polish + structured minutes; the meeting library supports tags, rename, delete, and trash restore; live streaming transcription (standard mode) is available.
+
+**New in v0.5 (stability + trash + minutes editing)**:
+- **Trash management** — a Trash dialog on the home page lists deleted meetings with one-click restore and permanent delete (the v0.3 "recoverable" promise now has a UI)
+- **Edit the minutes** — both the polished text and the summary can be edited and saved; the summary supports per-section editing (overview / decisions / action items / open questions) as well as plain markdown
+- **Resume stuck tasks** — a "Resume task" button on the detail page; `scripts/resume_tasks.py` runs as an hourly cron and reads port / SSL / data dir from config.yaml
+- **Stability fixes** — a bug where retried tasks stayed "queued" forever (and blocked idle model unload), the punctuation model stalling all HTTP during live sessions, stuck status after interrupted polish, atomic + fault-tolerant `meta.json` writes, meeting_id path-traversal hardening
+- **Security** — speaker-name injection XSS fixed; Enhanced mode (GPU sidecar) moved to **v0.6**, now also rejected server-side
 
 **New in v0.4 (live streaming transcription)**:
 - **Live streaming transcription** — open the microphone during a meeting; when stopped it automatically writes `audio_live.wav` + `raw.json` and enters the "Ready to polish" state, after which the proofread / polish / summarize flow is identical to the upload path
 - **Standard mode** — built-in FunASR streaming engine (`paraformer-zh-streaming`); works on macOS / WSL / Linux with no extra setup
-- **Enhanced mode (coming in v0.5)** — will forward audio to a Fun-ASR-Nano vLLM GPU sidecar (`ws://localhost:10095`) for better accuracy on dialects, accents, and far-field audio; available only on WSL/Linux + NVIDIA dGPU; the UI greys it out with a "v0.5" hint
+- **Enhanced mode (coming in v0.6)** — will forward audio to a Fun-ASR-Nano vLLM GPU sidecar (`ws://localhost:10095`) for better accuracy on dialects, accents, and far-field audio; available only on WSL/Linux + NVIDIA dGPU; the UI greys it out with a "v0.6" hint
 - **Unified entry point** — "Live" tab on the home page; the live page lets you switch engines (Enhanced is currently preview-only and cannot be selected)
 
 **v0.3 done (meeting library)**:
@@ -152,10 +159,10 @@ Two modes target different hardware:
 | Mode | Name | Platforms | Hardware requirements |
 |---|---|---|---|
 | **Standard** | Built-in realtime engine | macOS / WSL / Linux | Apple Silicon M1+ or modern CPU, 8GB+ RAM |
-| **Enhanced** | GPU realtime engine | WSL/Linux + NVIDIA dGPU only (coming in v0.5) | NVIDIA dGPU with 8GB+ VRAM (12GB+ recommended) |
+| **Enhanced** | GPU realtime engine | WSL/Linux + NVIDIA dGPU only (coming in v0.6) | NVIDIA dGPU with 8GB+ VRAM (12GB+ recommended) |
 
 - **Standard mode** is the default and works on every platform without extra setup.
-- **Enhanced mode** is for harder scenarios — dialects, accents, far-field — with higher accuracy; it is currently greyed out in the UI with a "v0.5" hint and cannot be selected.
+- **Enhanced mode** is for harder scenarios — dialects, accents, far-field — with higher accuracy; it is currently greyed out in the UI with a "v0.6" hint and cannot be selected.
 - Once Enhanced mode ships, it will require a separate GPU sidecar service (`ws://localhost:10095`) on the same WSL/Linux machine. Switch by setting `asr.stream_engine: sidecar` and `asr.sidecar_url` in `config.yaml`. Deployment instructions will be updated in the [WSL deployment guide](docs/wsl-deploy.en.md).
 
 ### HTTPS for LAN access (live mic)
@@ -279,11 +286,13 @@ app/
   config.py   config loading (${ENV_VAR} expansion)
   audio.py    ffmpeg conversion
   asr.py      FunASR AutoModel wrapper (GPU-first)
+  stream.py   realtime streaming engines (standard funasr / enhanced sidecar)
   llm.py      polish + summarize (chunking + map-reduce)
   storage.py  data/ directory CRUD
   tasks.py    async pipeline + progress
   main.py     FastAPI routes
-static/       home / detail page / styles
+  dns_hosts.py optional DNS override (active when dns_hosts.txt exists)
+static/       home / detail / live pages (index / meeting / live)
 data/         meeting data (gitignored)
 models/       FunASR model cache (gitignored)
 test/         unit tests + smoke scripts

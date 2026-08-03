@@ -21,7 +21,7 @@
 - **LLM 自由选**：本地 Ollama，或任何 OpenAI 兼容 API（GLM / DeepSeek / 通义 / Kimi / OpenAI …）
 - **全 Web 配置**：数据目录、LLM、热词、总结模板都在网页里配，不用改文件
 - **导出** `.md` / `.txt` / `.srt`（md 导出带说话人真名）
-- **实时流式转写**：会议中直接开麦直播，停止后落成和上传模式一致的原文与录音，进入同样的校对 → 整理 → 总结流程；v0.4 提供标准模式（内置引擎，全平台开箱即用），增强模式（GPU 引擎，方言/口音/远场更准）将在 v0.5 提供
+- **实时流式转写**：会议中直接开麦直播，停止后落成和上传模式一致的原文与录音，进入同样的校对 → 整理 → 总结流程；v0.4 提供标准模式（内置引擎，全平台开箱即用），增强模式（GPU 引擎，方言/口音/远场更准）将在 v0.6 提供
 - **历史会议管理**：给会议打标签 + 按标签筛选、对已处理完的会议改名、删除可选「移到回收站」或「完全删除」；回收站里可一键恢复或彻底删除
 - **纪要二次编辑**：整理版和会议总结都能手动修改再保存（总结支持四段结构化逐段编辑，也支持纯 markdown）
 - **卡死任务恢复**：服务重启导致任务卡住时，详情页点「恢复任务」一键续跑；也可装 cron 每小时自动巡检
@@ -121,14 +121,21 @@ crontab -l | { cat; echo '17 * * * * cd /path/to/Tingji && .venv/bin/python scri
 
 判定"卸载有没有生效"别看 Mac 的 RSS 数字——看「设置 → 服务」的模型状态字段，或日志里的 `FunASR models unloaded (idle)`。
 
-## 项目状态（v0.4）
+## 项目状态（v0.5）
 
-核心链路可用：上传 → 识别（带说话人分离 + 时间戳）→ 校对 → 一键整理 + 结构化纪要；历史会议支持标签、改名、删除；新增实时流式转写。
+核心链路可用：上传 → 识别（带说话人分离 + 时间戳）→ 校对 → 一键整理 + 结构化纪要；历史会议支持标签、改名、删除与回收站恢复；实时流式转写（标准模式）。
+
+**v0.5 新增（稳定性 + 回收站 + 纪要编辑）**：
+- **回收站管理**：首页「回收站」弹窗可查看 / 一键恢复 / 彻底删除（v0.3 的"可找回"补齐了界面）
+- **纪要二次编辑**：整理版与会议总结都能手动修改保存；总结支持概述 / 决议 / 待办 / 待讨论四段逐段编辑，也支持纯 markdown
+- **卡死任务恢复**：详情页「恢复任务」按钮一键续跑；`scripts/resume_tasks.py` 每小时 cron 自动巡检（自动读 config.yaml 的端口 / SSL / 数据目录）
+- **稳定性修复**：重试后任务进度永远停在"排队中"并阻塞模型闲置卸载的 bug、实时转写时标点模型阻塞所有 HTTP 请求、整理中断导致状态卡死、`meta.json` 原子写 + 容错（一个损坏文件不再搞挂整个列表）、meeting_id 路径穿越加固
+- **安全**：说话人名注入 XSS 修复；增强模式（GPU sidecar）改为 **v0.6 提供**，后端同步禁止选中
 
 **v0.4 新增（实时流式转写）**：
 - **实时流式转录**：会议中开麦直播，停止后自动落成 `audio_live.wav` + `raw.json`，直接进入「待整理」状态，后续校对 / 整理 / 总结流程与上传模式完全一致
 - **标准模式**：内置 FunASR 流式引擎（`paraformer-zh-streaming`），macOS / WSL / Linux 通用，无需额外配置
-- **增强模式（v0.5 提供）**：将转发到 Fun-ASR-Nano vLLM GPU sidecar（`ws://localhost:10095`），方言 / 口音 / 远场识别更准；仅 WSL/Linux + NVIDIA 独显可用，前端选择器会灰色禁用并提示"v0.5 提供"
+- **增强模式（v0.6 提供）**：将转发到 Fun-ASR-Nano vLLM GPU sidecar（`ws://localhost:10095`），方言 / 口音 / 远场识别更准；仅 WSL/Linux + NVIDIA 独显可用，前端选择器会灰色禁用并提示"v0.6 提供"
 - **统一入口**：首页「实时记录」标签，实时页可切换引擎（增强模式当前仅作预览，不可选）
 
 **v0.3 已完成（历史会议管理）**：
@@ -152,10 +159,10 @@ crontab -l | { cat; echo '17 * * * * cd /path/to/Tingji && .venv/bin/python scri
 | 模式 | 用户可见名称 | 适用平台 | 硬件要求 |
 |---|---|---|---|
 | **标准模式** | 内置实时引擎 | macOS / WSL / Linux | Apple Silicon M1+ 或现代 CPU，8GB+ 内存 |
-| **增强模式** | GPU 实时引擎 | 仅 WSL/Linux + NVIDIA 独显（v0.5 提供） | NVIDIA 独显 8GB+ 显存（推荐 12GB+）|
+| **增强模式** | GPU 实时引擎 | 仅 WSL/Linux + NVIDIA 独显（v0.6 提供） | NVIDIA 独显 8GB+ 显存（推荐 12GB+）|
 
 - **标准模式**默认开启，所有平台可用，无需额外配置。
-- **增强模式**面向方言 / 口音 / 远场等重场景，准确率更高；当前版本前端选择器灰色禁用并提示"v0.5 提供"，无法选中。
+- **增强模式**面向方言 / 口音 / 远场等重场景，准确率更高；当前版本前端选择器灰色禁用并提示"v0.6 提供"，无法选中。
 - 增强模式上线后需要单独启动一个 GPU sidecar 服务（`ws://localhost:10095`），可在同一台 WSL/Linux 机器上部署。配置 `config.yaml` 的 `asr.stream_engine: sidecar` 与 `asr.sidecar_url` 即可切换。相关部署说明届时会更新到 [WSL 部署指南](docs/wsl-deploy.md)。
 
 ### 局域网 HTTPS 访问（实时开麦）
@@ -279,11 +286,13 @@ app/
   config.py   配置加载（${ENV_VAR} 展开）
   audio.py    ffmpeg 转换
   asr.py      FunASR AutoModel 封装（GPU 优先）
+  stream.py   实时流式引擎（标准 funasr / 增强 sidecar 双实现）
   llm.py      整理 + 总结（分段 + map-reduce）
   storage.py  data/ 目录 CRUD
   tasks.py    异步 pipeline + 进度
   main.py     FastAPI 路由
-static/       首页 / 详情页 / 样式
+  dns_hosts.py 可选 DNS 覆盖（dns_hosts.txt 存在时生效）
+static/       首页 / 详情页 / 实时页（index / meeting / live）
 data/         会议数据（gitignore）
 models/       FunASR 模型缓存（gitignore）
 test/         单元测试 + 冒烟脚本

@@ -424,16 +424,6 @@ header h1 .brand:hover { opacity: 0.85; }
   grid-template-columns: 1fr 1fr;
   gap: 28px;
 }
-.compare-col {
-  background: var(--paper);
-  padding: 20px 24px;
-  border-radius: var(--r-md);
-  max-height: 72vh;
-  overflow-y: auto;
-  font-size: 14px;
-  line-height: 1.85;
-  border: 1px solid var(--paper-edge);
-}
 /* 对照视图：左原文逐句、右整理段独立；hover 跨栏高亮 */
 .compare-col {
   background: var(--paper);
@@ -690,17 +680,6 @@ mark.search-hit.current {
   padding: 10px 32px;
 }
 
-/* --- 响应式 --- */
-@media (max-width: 720px) {
-  .compare-grid { grid-template-columns: 1fr; }
-  .steps { grid-template-columns: 1fr; }
-  .step:not(:last-child)::after { display: none; }
-  .step { padding: 12px 0; border-bottom: 1px solid var(--paper-edge); }
-  .step:last-child { border-bottom: none; }
-  header h1 { font-size: 17px; }
-  .container { padding: 0 16px; }
-  .rendered-md { padding: 20px; }
-}
 /* --- 整理版 / 总结 编辑态 --- */
 .md-tools { display: flex; justify-content: flex-end; margin-bottom: 10px; }
 .md-editor {

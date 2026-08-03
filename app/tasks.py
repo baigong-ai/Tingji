@@ -181,7 +181,7 @@ async def _run_asr(task_id, meeting_id, cfg) -> None:
     update(task_id, status="asr_running", step="语音识别")
     mdir = storage.meeting_dir(meeting_id)
     wav = str(mdir / "audio_wav.wav")
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     stop_fake = asyncio.Event()
 
     async def fake_ticker():
@@ -213,7 +213,7 @@ async def _run_polish(task_id, meeting_id, cfg) -> None:
     meta = data.get("meta") or {}
     ctx = meta.get("meeting_context") or ""
     hint = _resolve_template_hint(meta.get("template") or "")
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     def on_prog(frac):
         update(task_id, progress=int(POLISH_START + frac * (POLISH_END - POLISH_START)))
     t0 = time.time()
@@ -230,7 +230,7 @@ async def _run_summarize(task_id, meeting_id, cfg) -> None:
     meta = data.get("meta") or {}
     ctx = meta.get("meeting_context") or ""
     hint = _resolve_template_hint(meta.get("template") or "")
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     t0 = time.time()
     result = await loop.run_in_executor(None, llm.summarize, processed, cfg.llm, _log_cb(meeting_id), ctx, hint)
     if isinstance(result, dict):
@@ -270,7 +270,7 @@ async def finalize_live(meeting_id: str, result: dict, pcm: bytes, sample_rate: 
     # accurate text, timestamps, and speaker diarization.
     mdir = storage.meeting_dir(meeting_id)
     wav_path = str(mdir / fname)
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     try:
         raw = await loop.run_in_executor(None, asr.transcribe, wav_path, cfg.asr, _log_cb(meeting_id))
     except Exception as e:

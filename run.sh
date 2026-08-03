@@ -124,7 +124,7 @@ if [ "$SSL_ENABLED" = "1" ]; then
   SCHEME="https"
 fi
 
-if grep -q 'mode: api' config.yaml && [ -z "${LLM_API_KEY:-}" ]; then
+if grep -qE '^\s*mode:\s*api\s*$' config.yaml && [ -z "${LLM_API_KEY:-}" ]; then
   echo "警告：LLM_API_KEY 未设置，LLM 整理/总结将不可用"
 fi
 

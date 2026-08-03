@@ -194,12 +194,16 @@ const dlgTitle = document.getElementById('dlg-title');
 const dlgBody = document.getElementById('dlg-body');
 const dlgActions = document.getElementById('dlg-actions');
 
+let dlgDirty = false;  // 弹窗内是否改过数据：取消/关闭时不刷新列表，保存过才刷
 function closeDlg() {
   dlgModal.classList.add('hidden');
   dlgBody.innerHTML = '';
   dlgActions.innerHTML = '';
-  renderTagFilter();
-  renderHistory();
+  if (dlgDirty) {
+    dlgDirty = false;
+    renderTagFilter();
+    renderHistory();
+  }
 }
 dlgModal.addEventListener('click', e => { if (e.target === dlgModal) closeDlg(); });
 document.addEventListener('keydown', e => {
@@ -220,8 +224,7 @@ function openRename(m) {
     });
     if (r.ok) {
       m.title = v;
-      const c = allMeetings.find(x => x.id === m.id);
-      if (c) c.title = v;
+      dlgDirty = true;
       closeDlg();
     }
   };
@@ -279,8 +282,7 @@ async function saveTags(m, tags) {
   const d = await r.json();
   if (r.ok) {
     m.tags = d.tags;
-    const c = allMeetings.find(x => x.id === m.id);
-    if (c) c.tags = d.tags;
+    dlgDirty = true;
     renderTagFilter();
   }
 }
@@ -311,6 +313,7 @@ async function openDelete(m) {
     const r = await fetch(url, { method: 'DELETE' });
     if (r.ok) {
       allMeetings = allMeetings.filter(x => x.id !== m.id);
+      dlgDirty = true;
       closeDlg();
     }
   });
@@ -386,13 +389,7 @@ async function deleteTrash(name) {
   }
 }
 
-function fmtDate(iso) {
-  if (!iso) return '--';
-  const d = new Date(iso);
-  if (isNaN(d)) return iso;
-  const pad = n => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
+// fmtDate / statusLabel / escapeHtml 见 static/common.js
 
 function fmtDuration(ms) {
   if (!ms) return '--';
@@ -400,17 +397,6 @@ function fmtDuration(ms) {
   const m = Math.floor(s / 60);
   const sec = s % 60;
   return `${m}:${String(sec).padStart(2,'0')}`;
-}
-
-function statusLabel(s) {
-  return {
-    pending: '排队', converting: '转换中', asr_running: '识别中', asr_done: '待整理',
-    live_recording: '实时中', llm_polishing: '整理中', llm_summarizing: '总结中', done: '完成', error: '失败',
-  }[s] || s;
-}
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
 // === settings modal: directory browser + LLM config ===
@@ -422,6 +408,9 @@ let previousDir = null;
 settingsBtn.addEventListener('click', openSettings);
 document.getElementById('settings-close-btn').addEventListener('click', () => settingsModal.classList.add('hidden'));
 settingsModal.addEventListener('click', e => { if (e.target === settingsModal) settingsModal.classList.add('hidden'); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !settingsModal.classList.contains('hidden')) settingsModal.classList.add('hidden');
+});
 
 document.querySelectorAll('.stab').forEach(btn => {
   btn.addEventListener('click', () => {

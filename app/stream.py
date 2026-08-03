@@ -47,9 +47,6 @@ class StreamEngine:
         """Return all PCM received so far (int16 mono)."""
         raise NotImplementedError
 
-    def status(self) -> dict:
-        return {"type": type(self).__name__}
-
     async def close(self) -> None:
         pass
 
@@ -274,9 +271,6 @@ class FunASRStreamEngine(StreamEngine):
     def pcm_bytes(self) -> bytes:
         return bytes(self._audio)
 
-    def status(self) -> dict:
-        return {"type": "funasr", "duration_ms": self.duration_ms()}
-
     async def close(self) -> None:
         if self._closed:
             return
@@ -396,9 +390,6 @@ class SidecarStreamEngine(StreamEngine):
 
     def pcm_bytes(self) -> bytes:
         return bytes(self._audio)
-
-    def status(self) -> dict:
-        return {"type": "sidecar", "url": self.url, "duration_ms": self.duration_ms()}
 
     async def close(self) -> None:
         if self._closed:

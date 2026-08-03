@@ -266,7 +266,7 @@ def test_resume_pipeline_stage_passes_registered_task(client, monkeypatch):
     assert seen["task_id"] == body["task_id"]
 
 
-def test_asr_settings_rejects_sidecar_until_v05(client, monkeypatch):
+def test_asr_settings_rejects_sidecar_until_v06(client, monkeypatch):
     monkeypatch.setattr(main, "_persist_asr_config", lambda: None)
     r = client.post("/api/settings/asr", json={"stream_engine": "sidecar"})
     assert r.status_code == 400
