@@ -13,6 +13,15 @@ pytest -v
 
 需要真实模型/网络，手工运行：
 
+### 浏览器端到端（v0.5 UI）
+
+```bash
+uv pip install playwright          # 仅 Python 客户端；浏览器二进制复用 ~/Library/Caches/ms-playwright
+.venv/bin/python test/smoke_browser.py
+```
+
+起真实服务 + 无头 Chromium 实测：整理版/总结编辑保存、error 状态「恢复任务」按钮、回收站弹窗恢复流程。默认用缓存里的 `chromium_headless_shell-1228`，没有则 `playwright install chromium`。
+
 ### ASR
 
 ```bash
