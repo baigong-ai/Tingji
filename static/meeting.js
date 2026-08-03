@@ -70,6 +70,8 @@ audioPlayer.src = `/api/meetings/${meetingId}/audio`;
 
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
+    if (editingTab && editDirty && !confirm('当前编辑尚未保存，切换后将丢弃修改，继续？')) return;
+    if (editingTab) { editingTab = null; editDirty = false; renderAll(); }
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
@@ -132,6 +134,44 @@ document.getElementById('retry-btn').addEventListener('click', () => {
   // 有内联选择器（asr_done 首次整理）就走内联；否则（重新整理）弹模板选择框
   if (document.querySelector('.template-select')) runPolish();
   else openPolishSetup();
+});
+
+// === 卡死任务手动恢复 ===
+const resumeBtn = document.getElementById('resume-btn');
+resumeBtn.addEventListener('click', async () => {
+  resumeBtn.disabled = true;
+  try {
+    const r = await fetch(`/api/meetings/${meetingId}/resume`, { method: 'POST' });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.detail || '恢复失败');
+    if (d.reason === 'already_running') {
+      alert('任务其实仍在运行中，无需恢复。可打开「日志」查看最新进度。');
+    } else if (d.action === 'mark_error') {
+      alert('实时录音已中断，会议被标记为失败。');
+      location.reload();
+    } else if ((d.action === 'run_pipeline' || d.action === 'retry_llm') && d.task_id) {
+      resumeBtn.textContent = '恢复中…';
+      await new Promise((resolve, reject) => {
+        const timer = setInterval(async () => {
+          try {
+            const s = await fetch(`/api/tasks/${d.task_id}`).then(x => x.json());
+            resumeBtn.textContent = `恢复中… ${s.progress}%`;
+            if (s.status === 'done') { clearInterval(timer); resolve(); }
+            else if (s.status === 'error') { clearInterval(timer); reject(new Error(s.error || '处理失败')); }
+          } catch (e) { clearInterval(timer); reject(e); }
+        }, 2000);
+      });
+      location.reload();
+    } else {
+      alert('当前状态无需恢复（' + (d.reason || 'no_action') + '）。');
+    }
+  } catch (e) {
+    alert('恢复失败: ' + e.message);
+    location.reload();
+  } finally {
+    resumeBtn.disabled = false;
+    resumeBtn.textContent = '恢复任务';
+  }
 });
 const polishSetupModal = document.getElementById('polish-setup-modal');
 function openPolishSetup() {
@@ -427,7 +467,139 @@ function renderAll() {
   setupCompareHover(allSentences, cmp.segs);
   activeLine = null;
   lastIdx = -1;
+  updateEditButtons();
 }
+
+// === 整理版 / 总结 二次编辑 ===
+let editingTab = null;   // 'processed' | 'summary' | null
+let editDirty = false;
+
+function updateEditButtons() {
+  const procTools = document.getElementById('proc-tools');
+  const sumTools = document.getElementById('sum-tools');
+  if (procTools) procTools.classList.toggle('hidden', !currentProcessed || editingTab === 'processed');
+  if (sumTools) sumTools.classList.toggle('hidden', (!currentSummary && !currentSummaryJson) || editingTab === 'summary');
+}
+
+function cancelEdit() {
+  if (editDirty && !confirm('有未保存的修改，确定放弃？')) return;
+  editingTab = null;
+  editDirty = false;
+  renderAll();
+}
+
+// --- 整理版编辑 ---
+document.getElementById('proc-edit-btn').addEventListener('click', () => {
+  editingTab = 'processed';
+  editDirty = false;
+  document.getElementById('proc-tools').classList.add('hidden');
+  const el = document.getElementById('processed-md');
+  el.innerHTML = `
+    <textarea id="proc-edit-text" class="md-editor" rows="22" aria-label="整理版 markdown"></textarea>
+    <div class="md-edit-bar">
+      <span id="proc-edit-hint" class="md-edit-hint"></span>
+      <button id="proc-edit-cancel" type="button">取消</button>
+      <button id="proc-edit-save" type="button" class="primary">保存</button>
+    </div>`;
+  const ta = document.getElementById('proc-edit-text');
+  ta.value = currentProcessed;
+  ta.addEventListener('input', () => { editDirty = true; });
+  document.getElementById('proc-edit-cancel').addEventListener('click', cancelEdit);
+  document.getElementById('proc-edit-save').addEventListener('click', async () => {
+    const hint = document.getElementById('proc-edit-hint');
+    const saveBtn = document.getElementById('proc-edit-save');
+    saveBtn.disabled = true;
+    hint.textContent = '';
+    try {
+      const r = await fetch(`/api/meetings/${meetingId}/processed`, {
+        method: 'PUT', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ text: ta.value })
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.detail || '保存失败');
+      }
+      currentProcessed = ta.value;
+      editingTab = null;
+      editDirty = false;
+      renderAll();
+    } catch (e) {
+      hint.textContent = '保存失败: ' + e.message;
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+  ta.focus();
+});
+
+// --- 总结编辑 ---
+document.getElementById('sum-edit-btn').addEventListener('click', () => {
+  editingTab = 'summary';
+  editDirty = false;
+  document.getElementById('sum-tools').classList.add('hidden');
+  const el = document.getElementById('summary-md');
+  const editBar = `
+    <div class="md-edit-bar">
+      <span id="sum-edit-hint" class="md-edit-hint"></span>
+      <button id="sum-edit-cancel" type="button">取消</button>
+      <button id="sum-edit-save" type="button" class="primary">保存</button>
+    </div>`;
+  if (currentSummaryJson) {
+    el.innerHTML = `
+      <div class="sum-edit">
+        <label class="sum-edit-field">概述<textarea id="sum-edit-summary" class="md-editor" rows="4"></textarea></label>
+        <label class="sum-edit-field">决议（一行一条）<textarea id="sum-edit-decisions" class="md-editor" rows="4"></textarea></label>
+        <label class="sum-edit-field">待办（一行一条）<textarea id="sum-edit-actions" class="md-editor" rows="4"></textarea></label>
+        <label class="sum-edit-field">待讨论（一行一条）<textarea id="sum-edit-open" class="md-editor" rows="4"></textarea></label>
+      </div>${editBar}`;
+    document.getElementById('sum-edit-summary').value = currentSummaryJson.summary || '';
+    document.getElementById('sum-edit-decisions').value = (currentSummaryJson.decisions || []).join('\n');
+    document.getElementById('sum-edit-actions').value = (currentSummaryJson.action_items || []).join('\n');
+    document.getElementById('sum-edit-open').value = (currentSummaryJson.open_questions || []).join('\n');
+  } else {
+    el.innerHTML = `<textarea id="sum-edit-text" class="md-editor" rows="18" aria-label="总结 markdown"></textarea>${editBar}`;
+    document.getElementById('sum-edit-text').value = currentSummary;
+  }
+  el.querySelectorAll('textarea').forEach(t => t.addEventListener('input', () => { editDirty = true; }));
+  document.getElementById('sum-edit-cancel').addEventListener('click', cancelEdit);
+  document.getElementById('sum-edit-save').addEventListener('click', async () => {
+    const hint = document.getElementById('sum-edit-hint');
+    const saveBtn = document.getElementById('sum-edit-save');
+    let payload;
+    if (currentSummaryJson) {
+      const splitLines = id => document.getElementById(id).value.split('\n').map(s => s.trim()).filter(Boolean);
+      payload = { summary_json: {
+        summary: document.getElementById('sum-edit-summary').value.trim(),
+        decisions: splitLines('sum-edit-decisions'),
+        action_items: splitLines('sum-edit-actions'),
+        open_questions: splitLines('sum-edit-open'),
+      }};
+    } else {
+      payload = { text: document.getElementById('sum-edit-text').value };
+    }
+    saveBtn.disabled = true;
+    hint.textContent = '';
+    try {
+      const r = await fetch(`/api/meetings/${meetingId}/summary`, {
+        method: 'PUT', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.detail || '保存失败');
+      }
+      editingTab = null;
+      editDirty = false;
+      await load();
+    } catch (e) {
+      hint.textContent = '保存失败: ' + e.message;
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+  const first = el.querySelector('textarea');
+  if (first) first.focus();
+});
 
 function renderSpeakersBar(count) {
   const bar = document.getElementById('speakers-bar');
@@ -582,7 +754,7 @@ function highlightInElement(root, query) {
       const p = node.parentNode;
       if (!p) return NodeFilter.FILTER_REJECT;
       const tag = p.nodeName;
-      if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'MARK') return NodeFilter.FILTER_REJECT;
+      if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'MARK' || tag === 'TEXTAREA') return NodeFilter.FILTER_REJECT;
       return node.nodeValue && node.nodeValue.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
     }
   });
@@ -723,9 +895,11 @@ async function refreshLog() {
       if (since >= 15) {
         logStaleness.textContent = `⚠ ${since}s 无新日志`;
         logStaleness.style.color = '#ff8b8b';
+        resumeBtn.classList.remove('hidden');
       } else {
         logStaleness.textContent = `${since}s 前更新`;
         logStaleness.style.color = '';
+        if (currentStatus !== 'error') resumeBtn.classList.add('hidden');
       }
     } else {
       logStaleness.textContent = '';
@@ -780,6 +954,7 @@ async function load() {
       retryBtn.textContent = meta.status === 'asr_done' ? '开始整理'
         : (meta.status === 'done' ? '重新整理' : '重试 LLM');
     }
+    if (meta.status === 'error') resumeBtn.classList.remove('hidden');
     renderAll();
     bindScrollSync();
   } catch (e) {

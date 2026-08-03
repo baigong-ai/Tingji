@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <title id="m-page-title">会议 · 听记</title>
-  <link rel="stylesheet" href="/static/style.css?v=8">
-  <link rel="stylesheet" href="/static/meeting.css?v=14">
+  <link rel="stylesheet" href="/static/style.css?v=13">
+  <link rel="stylesheet" href="/static/meeting.css?v=15">
 </head>
 <body>
   <header>
@@ -34,6 +34,7 @@
           </select>
           <button id="export-btn" class="mini">导出</button>
           <button id="retry-btn" class="retry-btn hidden">重试 LLM</button>
+          <button id="resume-btn" class="retry-btn hidden">恢复任务</button>
         </div>
       </div>
       <div id="speakers-bar" class="speakers-bar"></div>
@@ -65,9 +66,11 @@
         <div id="transcript" class="transcript"></div>
       </div>
       <div id="tab-processed" class="panel" role="tabpanel">
+        <div id="proc-tools" class="md-tools hidden"><button id="proc-edit-btn" class="mini" type="button">编辑</button></div>
         <div id="processed-md" class="rendered-md"></div>
       </div>
       <div id="tab-summary" class="panel" role="tabpanel">
+        <div id="sum-tools" class="md-tools hidden"><button id="sum-edit-btn" class="mini" type="button">编辑</button></div>
         <div id="summary-md" class="rendered-md"></div>
       </div>
       <div id="tab-compare" class="panel" role="tabpanel">
@@ -141,6 +144,6 @@
 
   <script src="/static/access.js?v=1"></script>
   <script src="/static/marked.min.js?v=1"></script>
-  <script src="/static/meeting.js?v=20"></script>
+  <script src="/static/meeting.js?v=21"></script>
 </body>
 </html>

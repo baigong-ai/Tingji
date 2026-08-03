@@ -1177,3 +1177,26 @@ button.mini.hact-del:hover:not(:disabled) {
   font-size: 11px;
   word-break: break-all;
 }
+/* 回收站 */
+.trash-btn { margin-left: auto; }
+.trash-dir { margin: 0 0 12px; font-size: 12px; color: var(--ink-faint); }
+.trash-dir code {
+  background: var(--paper-deep);
+  padding: 1px 6px;
+  border-radius: var(--r-sm);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  word-break: break-all;
+}
+.trash-list { list-style: none; margin: 0; padding: 0; }
+.trash-item {
+  display: flex;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--paper-edge);
+}
+.trash-item:last-child { border-bottom: none; }
+.trash-item .title { font-size: 14px; color: var(--ink); }
+.trash-item .meta { font-size: 12px; color: var(--ink-faint); margin-top: 3px; }
+.trash-item .meta .sep { margin: 0 8px; color: var(--paper-edge); }
+.trash-item .hactions { margin-left: 12px; flex: none; }

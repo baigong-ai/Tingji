@@ -111,3 +111,47 @@ def test_update_meta_is_atomic(data_dir):
     storage.update_meta(mid, status="done")
     assert not (data_dir / mid / "meta.json.tmp").exists()
     assert storage.get_meeting(mid)["meta"]["status"] == "done"
+
+
+def test_trash_list_restore_delete(data_dir):
+    src = data_dir.parent / "a.wav"
+    src.write_bytes(b"x")
+    mid = storage.create_meeting("t", str(src), "wav")
+    storage.move_to_trash(mid)
+    items = storage.list_trash()
+    assert len(items) == 1
+    assert items[0]["name"] == mid and items[0]["title"] == "t"
+    assert storage.restore_from_trash(mid) is True
+    assert storage.get_meeting(mid) is not None
+    assert storage.list_trash() == []
+    # second restore fails: no longer in trash
+    assert storage.restore_from_trash(mid) is False
+    # trash again, then permanent delete
+    storage.move_to_trash(mid)
+    assert storage.delete_from_trash(mid) is True
+    assert storage.list_trash() == []
+    assert storage.delete_from_trash(mid) is False
+
+
+def test_trash_restore_strips_collision_suffix(data_dir):
+    """Trashing the same meeting twice yields '<id>.1'; restoring it must
+    bring back the original meeting id."""
+    src = data_dir.parent / "a.wav"
+    src.write_bytes(b"x")
+    mid = storage.create_meeting("t", str(src), "wav")
+    storage.move_to_trash(mid)
+    storage.restore_from_trash(mid)
+    storage.move_to_trash(mid)
+    storage.restore_from_trash(mid)
+    # now trash it a third time while a mid.1 history exists? simulate directly:
+    storage.move_to_trash(mid)
+    suffixed = storage.trash_dir() / f"{mid}.1"
+    (storage.trash_dir() / mid).rename(suffixed)
+    assert storage.restore_from_trash(f"{mid}.1") is True
+    assert storage.get_meeting(mid) is not None
+
+
+def test_trash_name_validation(data_dir):
+    assert storage.restore_from_trash("../x") is False
+    assert storage.delete_from_trash("..") is False
+    assert storage.restore_from_trash("not-an-id") is False

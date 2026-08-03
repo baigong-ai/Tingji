@@ -22,7 +22,9 @@ Built on [FunASR](https://github.com/modelscope/FunASR) (speech recognition + sp
 - **Configure everything in the browser** — data directory, LLM, hotwords, summary templates are all set via the web UI, no file editing
 - **Export** `.md` / `.txt` / `.srt` (md export uses real speaker names)
 - **Live streaming transcription** — open the microphone during a meeting; when stopped it writes the same raw transcript + audio as the upload flow, then goes through the same proofread → polish → summarize pipeline. v0.4 ships Standard mode (built-in engine, all platforms), and Enhanced mode (GPU engine, better for dialects / accents / far-field) is coming in v0.5
-- **Meeting library management** — tag meetings and filter by tag, rename any finished meeting, and delete either to a recoverable trash folder or permanently
+- **Meeting library management** — tag meetings and filter by tag, rename any finished meeting, delete to trash or permanently; the trash view can restore or permanently delete
+- **Edit the minutes afterwards** — both the polished text and the summary can be edited and saved (the summary supports per-section structured editing as well as plain markdown)
+- **Resume stuck tasks** — if a restart leaves a task stuck, click "Resume task" on the detail page; an optional hourly cron can do it automatically
 - **Runs locally** — recordings and results never leave your machine
 
 
@@ -82,6 +84,16 @@ Open `http://127.0.0.1:8000` in your browser.
 
 Handy for keeping Tingji resident on a Mac/Linux box as your local transcription service. Settings → Service also lets you change the listen port/host (restart required) — click "Check port" first and it'll name the conflicting process via `lsof` if the port is taken.
 
+#### Auto-resume interrupted tasks (optional)
+
+A restart leaves in-flight tasks stuck in an intermediate status. Besides the manual "Resume task" button on the detail page, you can install an hourly cron to resume them automatically (meetings interrupted mid-live-recording are marked as failed):
+
+```bash
+crontab -l | { cat; echo '17 * * * * cd /path/to/Tingji && .venv/bin/python scripts/resume_tasks.py >> logs/resume.log 2>&1'; } | crontab -
+```
+
+The script reads port / SSL / data dir from `config.yaml`, so custom configurations work out of the box.
+
 #### Idle model auto-unload
 
 The biggest resident cost is the 4 FunASR models. After an idle period Tingji **unloads them from RAM** and reloads on the next transcription — so the resident footprint drops sharply when nothing's happening.
@@ -129,7 +141,7 @@ The core pipeline works: upload → recognition (with speaker diarization + time
 
 **v0.1 done**: speaker timeline, structured minutes (summary / decisions / action items / open questions as JSON), summary templates (preset + custom), pre-polish meeting background + common terms, speaker rename synced across views and exports, md / txt / srt export, live log, fixed layout.
 
-**Not yet**: manual speaker merge/split, editing the saved minutes, docx export, export options (with/without speaker or timestamps), agenda chapter splitting.
+**Not yet**: manual speaker merge/split, docx export, export options (with/without speaker or timestamps), agenda chapter splitting.
 
 ## Live transcription
 

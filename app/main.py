@@ -764,6 +764,14 @@ async def resume_meeting(meeting_id: str, background_tasks: BackgroundTasks):
         task_id = _start_retry_llm(background_tasks, meeting_id)
         return {"ok": True, "action": "retry_llm", "task_id": task_id, "status": status}
 
+    if status == "live_recording":
+        # Service restarted mid-recording: the PCM buffer lived only in memory
+        # and is unrecoverable. Mark the meeting failed instead of leaving it
+        # stuck in live_recording forever.
+        storage.update_meta(meeting_id, status="error",
+                            error="实时录音因服务重启中断，录音未能保存")
+        return {"ok": True, "action": "mark_error", "status": "error"}
+
     return {"ok": False, "reason": "no_action", "status": status}
 
 
@@ -922,6 +930,70 @@ async def delete_meeting(meeting_id: str, keep: bool = False):
         return {"ok": True, "trashed": True, "trash_path": str(moved)}
     storage.delete_meeting(meeting_id)
     return {"ok": True, "trashed": False}
+
+
+# --- Trash (回收站) management ---------------------------------------------
+
+@app.get("/api/trash")
+async def list_trash():
+    return {"items": storage.list_trash(), "trash_dir": str(storage.trash_dir())}
+
+
+@app.post("/api/trash/{name}/restore")
+async def restore_trash(name: str):
+    if not storage.restore_from_trash(name):
+        raise HTTPException(400, "恢复失败：回收站中不存在该会议，或数据目录已有同名会议")
+    return {"ok": True, "name": name}
+
+
+@app.delete("/api/trash/{name}")
+async def delete_trash(name: str):
+    if not storage.delete_from_trash(name):
+        raise HTTPException(404, "回收站中不存在该会议")
+    return {"ok": True, "name": name}
+
+
+# --- Manual editing of polished text / summary ------------------------------
+
+@app.put("/api/meetings/{meeting_id}/processed")
+async def edit_processed(meeting_id: str, payload: dict):
+    if storage.get_meeting(meeting_id) is None:
+        raise HTTPException(404)
+    text = payload.get("text")
+    if not isinstance(text, str) or not text.strip():
+        raise HTTPException(400, "整理版内容不能为空")
+    storage.save_processed(meeting_id, text)
+    return {"ok": True}
+
+
+_SUMMARY_KEYS = ("summary", "decisions", "action_items", "open_questions")
+
+
+@app.put("/api/meetings/{meeting_id}/summary")
+async def edit_summary(meeting_id: str, payload: dict):
+    if storage.get_meeting(meeting_id) is None:
+        raise HTTPException(404)
+    sj = payload.get("summary_json")
+    if isinstance(sj, dict):
+        cleaned = {
+            "summary": str(sj.get("summary") or ""),
+            "decisions": [str(x) for x in sj.get("decisions") or [] if str(x).strip()],
+            "action_items": [str(x) for x in sj.get("action_items") or [] if str(x).strip()],
+            "open_questions": [str(x) for x in sj.get("open_questions") or [] if str(x).strip()],
+        }
+        if not any([cleaned["summary"], cleaned["decisions"], cleaned["action_items"], cleaned["open_questions"]]):
+            raise HTTPException(400, "总结内容不能为空")
+        storage.save_summary_json(meeting_id, cleaned)
+        storage.save_summary(meeting_id, llm.summary_to_md(cleaned))
+        return {"ok": True, "structured": True}
+    text = payload.get("text")
+    if not isinstance(text, str) or not text.strip():
+        raise HTTPException(400, "总结内容不能为空")
+    storage.save_summary(meeting_id, text)
+    # A manual markdown edit invalidates the structured form; drop it so the
+    # summary tab falls back to rendering this markdown.
+    storage.save_summary_json(meeting_id, None)
+    return {"ok": True, "structured": False}
 
 
 def _fmt_ts(ms: int) -> str:

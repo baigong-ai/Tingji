@@ -317,6 +317,75 @@ async function openDelete(m) {
   dlgModal.classList.remove('hidden');
 }
 
+// --- 回收站 ---
+document.getElementById('trash-btn').addEventListener('click', openTrash);
+
+async function openTrash() {
+  dlgTitle.textContent = '回收站';
+  dlgBody.innerHTML = '<p class="he-empty">加载中…</p>';
+  dlgActions.innerHTML = '<button id="dlg-cancel">关闭</button>';
+  document.getElementById('dlg-cancel').addEventListener('click', closeDlg);
+  dlgModal.classList.remove('hidden');
+  await renderTrashList();
+}
+
+async function renderTrashList() {
+  try {
+    const r = await fetch('/api/trash');
+    const d = await r.json();
+    const items = d.items || [];
+    let html = '';
+    if (d.trash_dir) html += `<p class="trash-dir">回收站目录：<code>${escapeHtml(d.trash_dir)}</code></p>`;
+    if (!items.length) {
+      html += '<p class="he-empty">回收站是空的</p>';
+    } else {
+      html += '<ul class="trash-list">' + items.map(it => `
+        <li class="trash-item" data-name="${escapeHtml(it.name)}">
+          <div class="hmain">
+            <span class="title">${escapeHtml(it.title)}</span>
+            <div class="meta">${fmtDate(it.created_at)}<span class="sep">·</span>${statusLabel(it.status)}</div>
+          </div>
+          <div class="hactions">
+            <button class="mini" data-act="restore" type="button">恢复</button>
+            <button class="mini hact-del" data-act="del" type="button">彻底删除</button>
+          </div>
+        </li>`).join('') + '</ul>';
+    }
+    dlgBody.innerHTML = html;
+    dlgBody.querySelectorAll('.trash-item button').forEach(b => {
+      b.addEventListener('click', () => {
+        const name = b.closest('.trash-item').dataset.name;
+        if (b.dataset.act === 'restore') restoreTrash(name);
+        else deleteTrash(name);
+      });
+    });
+  } catch (e) {
+    dlgBody.innerHTML = `<p class="he-empty">加载失败：${escapeHtml(e.message)}</p>`;
+  }
+}
+
+async function restoreTrash(name) {
+  const r = await fetch(`/api/trash/${encodeURIComponent(name)}/restore`, { method: 'POST' });
+  if (r.ok) {
+    await renderTrashList();
+    loadHistory();
+  } else {
+    const d = await r.json().catch(() => ({}));
+    alert('恢复失败：' + (d.detail || '未知错误'));
+  }
+}
+
+async function deleteTrash(name) {
+  if (!confirm('彻底删除后无法恢复，确定删除？')) return;
+  const r = await fetch(`/api/trash/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  if (r.ok) {
+    await renderTrashList();
+  } else {
+    const d = await r.json().catch(() => ({}));
+    alert('删除失败：' + (d.detail || '未知错误'));
+  }
+}
+
 function fmtDate(iso) {
   if (!iso) return '--';
   const d = new Date(iso);

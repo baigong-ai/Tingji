@@ -701,3 +701,36 @@ mark.search-hit.current {
   .container { padding: 0 16px; }
   .rendered-md { padding: 20px; }
 }
+/* --- 整理版 / 总结 编辑态 --- */
+.md-tools { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+.md-editor {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.7;
+  padding: 12px 14px;
+  border: 1px solid var(--paper-edge);
+  border-radius: var(--r-sm);
+  background: var(--paper);
+  color: var(--ink);
+  resize: vertical;
+}
+.md-editor:focus { outline: none; border-color: var(--seal); }
+.md-edit-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 10px;
+}
+.md-edit-bar button { padding: 9px 18px; font-size: 13px; }
+.md-edit-hint { flex: 1; font-size: 12px; color: var(--seal); }
+.sum-edit-field {
+  display: block;
+  font-size: 12px;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+  margin-bottom: 12px;
+}
+.sum-edit-field .md-editor { margin-top: 6px; }

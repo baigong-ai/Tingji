@@ -230,6 +230,57 @@ def trash_dir() -> Path:
     return DATA_DIR / "回收站"
 
 
+# Trashed entries are meeting dirs, optionally suffixed ".N" on name collision.
+_VALID_TRASH_NAME = re.compile(r"^\d{8}-\d{6}-[\w一-龥-]+(\.\d+)?$")
+
+
+def list_trash() -> list[dict]:
+    td = trash_dir()
+    if not td.exists():
+        return []
+    items = []
+    for d in td.iterdir():
+        if not d.is_dir() or not _VALID_TRASH_NAME.match(d.name):
+            continue
+        meta = _read_meta(d) or {}
+        items.append({
+            "name": d.name,
+            "id": meta.get("id", d.name),
+            "title": meta.get("title", d.name),
+            "created_at": meta.get("created_at", ""),
+            "status": meta.get("status", ""),
+        })
+    items.sort(key=lambda m: m["created_at"], reverse=True)
+    return items
+
+
+def restore_from_trash(name: str) -> bool:
+    """Move a trashed meeting back to the data dir.
+
+    Collision-suffixed trash names ("<id>.1") restore to the original meeting
+    id; returns False if the trash entry is missing or the id is taken.
+    """
+    if not _VALID_TRASH_NAME.match(name or ""):
+        return False
+    src = trash_dir() / name
+    base = re.sub(r"\.\d+$", "", name)  # meeting ids never contain dots
+    dst = DATA_DIR / base
+    if not src.is_dir() or dst.exists():
+        return False
+    src.rename(dst)  # same filesystem: atomic, 9p-safe
+    return True
+
+
+def delete_from_trash(name: str) -> bool:
+    if not _VALID_TRASH_NAME.match(name or ""):
+        return False
+    target = trash_dir() / name
+    if not target.is_dir():
+        return False
+    shutil.rmtree(target)
+    return True
+
+
 def move_to_trash(meeting_id: str) -> Path | None:
     if not is_valid_meeting_id(meeting_id):
         return None

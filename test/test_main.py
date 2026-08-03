@@ -274,6 +274,56 @@ def test_asr_settings_rejects_sidecar_until_v05(client, monkeypatch):
     assert r.status_code == 200
 
 
+def test_trash_endpoints(client):
+    mid = _upload(client)
+    client.delete(f"/api/meetings/{mid}?keep=1")
+    items = client.get("/api/trash").json()["items"]
+    assert any(i["name"] == mid for i in items)
+    assert client.post(f"/api/trash/{mid}/restore").status_code == 200
+    assert client.get(f"/api/meetings/{mid}").status_code == 200
+    # restore again -> 400 (not in trash anymore)
+    assert client.post(f"/api/trash/{mid}/restore").status_code == 400
+    # trash then permanently delete via trash endpoint
+    client.delete(f"/api/meetings/{mid}?keep=1")
+    assert client.delete(f"/api/trash/{mid}").status_code == 200
+    assert client.get("/api/trash").json()["items"] == []
+    assert client.delete(f"/api/trash/{mid}").status_code == 404
+
+
+def test_edit_processed(client):
+    mid = _upload(client)
+    r = client.put(f"/api/meetings/{mid}/processed", json={"text": "# 整理后"})
+    assert r.status_code == 200
+    assert storage.get_meeting(mid)["processed"] == "# 整理后"
+    assert client.put(f"/api/meetings/{mid}/processed", json={"text": "  "}).status_code == 400
+
+
+def test_edit_summary_structured_and_markdown(client):
+    mid = _upload(client)
+    sj = {"summary": "概述", "decisions": ["d1"], "action_items": ["a1"], "open_questions": []}
+    r = client.put(f"/api/meetings/{mid}/summary", json={"summary_json": sj})
+    assert r.status_code == 200 and r.json()["structured"] is True
+    data = storage.get_meeting(mid)
+    assert data["summary_json"]["decisions"] == ["d1"]
+    assert "概述" in data["summary"] and "d1" in data["summary"]
+    # manual markdown edit drops the structured form
+    r = client.put(f"/api/meetings/{mid}/summary", json={"text": "## 手动总结"})
+    assert r.status_code == 200 and r.json()["structured"] is False
+    data = storage.get_meeting(mid)
+    assert data["summary_json"] is None
+    assert data["summary"] == "## 手动总结"
+    assert client.put(f"/api/meetings/{mid}/summary", json={"text": ""}).status_code == 400
+
+
+def test_resume_live_recording_marks_error(client):
+    mid = _upload(client)
+    main.tasks._tasks.clear()  # simulate process restart mid-recording
+    storage.update_meta(mid, status="live_recording")
+    body = client.post(f"/api/meetings/{mid}/resume").json()
+    assert body["ok"] is True and body["action"] == "mark_error"
+    assert storage.get_meeting(mid)["meta"]["status"] == "error"
+
+
 def test_browse_lists_only_subdirs(client, tmp_path):
     (tmp_path / "subA").mkdir()
     (tmp_path / "subB").mkdir()
