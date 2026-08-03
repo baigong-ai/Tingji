@@ -7,6 +7,14 @@ from pathlib import Path
 
 DATA_DIR = Path("data")
 
+# Meeting ids are system-generated as {YYYYMMDD}-{HHMMSS}-{slug}; anything else
+# (notably ".", "..", "/") must never reach the filesystem layer.
+_VALID_ID = re.compile(r"^\d{8}-\d{6}-[\w一-龥-]+$")
+
+
+def is_valid_meeting_id(meeting_id: str) -> bool:
+    return bool(_VALID_ID.match(meeting_id or ""))
+
 
 def set_data_dir(path: str) -> Path:
     global DATA_DIR
@@ -27,16 +35,21 @@ def _slugify(title: str) -> str:
 
 
 def _write_meta(mdir: Path, meta: dict) -> None:
-    (mdir / "meta.json").write_text(
-        json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    """Atomic write (tmp + rename) so a crash mid-write can't leave a
+    half-written meta.json that would break the whole meeting list."""
+    tmp = mdir / "meta.json.tmp"
+    tmp.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(mdir / "meta.json")
 
 
 def _read_meta(mdir: Path) -> dict | None:
     f = mdir / "meta.json"
     if not f.exists():
         return None
-    return json.loads(f.read_text(encoding="utf-8"))
+    try:
+        return json.loads(f.read_text(encoding="utf-8"))
+    except Exception:
+        return None
 
 
 def _read_json(p: Path):
@@ -126,6 +139,8 @@ def list_meetings() -> list[dict]:
 
 
 def get_meeting(meeting_id: str) -> dict | None:
+    if not is_valid_meeting_id(meeting_id):
+        return None
     mdir = DATA_DIR / meeting_id
     meta = _read_meta(mdir)
     if not meta:
@@ -204,6 +219,8 @@ def update_meta(meeting_id: str, **fields) -> None:
 
 
 def delete_meeting(meeting_id: str) -> None:
+    if not is_valid_meeting_id(meeting_id):
+        return
     mdir = DATA_DIR / meeting_id
     if mdir.exists():
         shutil.rmtree(mdir)
@@ -214,6 +231,8 @@ def trash_dir() -> Path:
 
 
 def move_to_trash(meeting_id: str) -> Path | None:
+    if not is_valid_meeting_id(meeting_id):
+        return None
     mdir = DATA_DIR / meeting_id
     if not mdir.exists():
         return None

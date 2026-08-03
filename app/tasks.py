@@ -37,6 +37,15 @@ def register_task(meeting_id: str) -> dict:
     return state
 
 
+def latest_task_id(meeting_id: str) -> Optional[str]:
+    """Most recently registered task for a meeting (a meeting may accumulate
+    several tasks across resume/retry — the newest one is the live one)."""
+    for tid, st in reversed(list(_tasks.items())):
+        if st["meeting_id"] == meeting_id:
+            return tid
+    return None
+
+
 def get_progress(task_id: str) -> Optional[dict]:
     state = _tasks.get(task_id)
     if state is None:
@@ -60,18 +69,18 @@ def append_log(meeting_id: str, level: str, msg: str) -> None:
         storage.append_log_line(meeting_id, entry)
     except Exception:
         pass
-    for st in _tasks.values():
-        if st["meeting_id"] == meeting_id:
-            st["logs"].append(entry)
-            if len(st["logs"]) > 300:
-                st["logs"] = st["logs"][-300:]
-            return
+    matched = [st for st in _tasks.values() if st["meeting_id"] == meeting_id]
+    for st in matched:
+        st["logs"].append(entry)
+        if len(st["logs"]) > 300:
+            st["logs"] = st["logs"][-300:]
 
 
 def get_logs(meeting_id: str) -> dict:
-    for st in _tasks.values():
-        if st["meeting_id"] == meeting_id:
-            return {"status": st["status"], "progress": st["progress"], "step": st["step"], "logs": st["logs"]}
+    tid = latest_task_id(meeting_id)
+    if tid is not None:
+        st = _tasks[tid]
+        return {"status": st["status"], "progress": st["progress"], "step": st["step"], "logs": st["logs"]}
     meta = storage.get_meeting(meeting_id)
     status = meta["meta"]["status"] if meta else "unknown"
     logs = storage.read_log_lines(meeting_id)
@@ -128,16 +137,12 @@ def _log_stage_summary(meeting_id: str, title: str, *stages) -> None:
     append_log(meeting_id, "info", f"{title}: {' · '.join(parts)} · 共 {_fmt_dur(total)}")
 
 
-async def run_pipeline(meeting_id: str, cfg) -> None:
+async def run_pipeline(meeting_id: str, cfg, task_id: Optional[str] = None) -> None:
     async with _lock:
-        task_id = None
-        for tid, st in _tasks.items():
-            if st["meeting_id"] == meeting_id:
-                task_id = tid
-                break
         if task_id is None:
-            state = register_task(meeting_id)
-            task_id = state["task_id"]
+            task_id = latest_task_id(meeting_id)
+        if task_id is None:
+            task_id = register_task(meeting_id)["task_id"]
 
         try:
             await _convert_audio(task_id, meeting_id, cfg)
@@ -238,9 +243,9 @@ async def _run_summarize(task_id, meeting_id, cfg) -> None:
     update(task_id, progress=SUMMARY_END)
 
 
-async def retry_llm(meeting_id: str, cfg) -> str:
-    state = register_task(meeting_id)
-    task_id = state["task_id"]
+async def retry_llm(meeting_id: str, cfg, task_id: Optional[str] = None) -> str:
+    if task_id is None:
+        task_id = register_task(meeting_id)["task_id"]
     async with _lock:
         try:
             await _run_polish(task_id, meeting_id, cfg)

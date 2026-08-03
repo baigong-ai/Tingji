@@ -232,7 +232,9 @@ class FunASRStreamEngine(StreamEngine):
             result = await asyncio.to_thread(self._decode, block, is_final=False)
             text = result.get("text", "") or ""
             self._add_text(text)
-            self._punctuate()
+            # Punctuation runs the ct-punc model synchronously — keep it off
+            # the event loop so live sessions don't stall HTTP requests.
+            await asyncio.to_thread(self._punctuate)
             self._append_sentences()
             self._update_partial()
         return self.snapshot()
@@ -246,7 +248,7 @@ class FunASRStreamEngine(StreamEngine):
             self._add_text(text)
         # Flush cache with empty audio to get any trailing text.
         await asyncio.to_thread(self._decode, b"", is_final=True)
-        self._punctuate()
+        await asyncio.to_thread(self._punctuate)
         self._append_sentences()
         if self._text_so_far:
             # Lock any remaining text as a final sentence so it is not lost.

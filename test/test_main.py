@@ -14,7 +14,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(storage, "DATA_DIR", tmp_path / "data")
     storage.DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-    async def fake_run(meeting_id, cfg):
+    async def fake_run(meeting_id, cfg, task_id=None):
         storage.update_meta(meeting_id, status="done")
     monkeypatch.setattr(main.tasks, "run_pipeline", fake_run)
 
@@ -206,6 +206,72 @@ def test_export_md_uses_speaker_names(client):
     md = client.get(f"/api/meetings/{mid}/export?format=md").text
     assert "Alice" in md and "Bob" in md
     assert "说话人0" not in md and "说话人1" not in md
+
+
+def test_export_md_before_polish_returns_400(client):
+    mid = client.post("/api/upload", files={"audio": ("a.wav", io.BytesIO(b"x"), "audio/wav")}, data={"title": "T"}).json()["meeting_id"]
+    r = client.get(f"/api/meetings/{mid}/export?format=md")
+    assert r.status_code == 400
+
+
+def _upload(client, title="T"):
+    return client.post("/api/upload", files={"audio": ("a.wav", io.BytesIO(b"x"), "audio/wav")}, data={"title": title}).json()["meeting_id"]
+
+
+def test_retry_llm_runs_in_background_with_registered_task(client, monkeypatch):
+    calls = {}
+
+    async def fake_retry(meeting_id, cfg, task_id=None):
+        calls["task_id"] = task_id
+        storage.update_meta(meeting_id, status="done")
+
+    monkeypatch.setattr(main.tasks, "retry_llm", fake_retry)
+    mid = _upload(client)
+    r = client.post(f"/api/meetings/{mid}/retry-llm")
+    assert r.status_code == 200
+    tid = r.json()["task_id"]
+    # the task_id handed to the frontend is the one the pipeline updates
+    assert calls["task_id"] == tid
+    assert client.get(f"/api/tasks/{tid}").status_code == 200
+
+
+def test_resume_llm_stage_uses_background_task(client, monkeypatch):
+    async def fake_retry(meeting_id, cfg, task_id=None):
+        storage.update_meta(meeting_id, status="done")
+
+    monkeypatch.setattr(main.tasks, "retry_llm", fake_retry)
+    mid = _upload(client)
+    main.tasks._tasks.clear()  # simulate process restart (resume's use case)
+    storage.update_meta(mid, status="llm_polishing")
+    body = client.post(f"/api/meetings/{mid}/resume").json()
+    assert body["ok"] is True
+    assert body["action"] == "retry_llm"
+    assert body["task_id"]
+    assert client.get(f"/api/tasks/{body['task_id']}").status_code == 200
+
+
+def test_resume_pipeline_stage_passes_registered_task(client, monkeypatch):
+    seen = {}
+
+    async def fake_run(meeting_id, cfg, task_id=None):
+        seen["task_id"] = task_id
+        storage.update_meta(meeting_id, status="done")
+
+    monkeypatch.setattr(main.tasks, "run_pipeline", fake_run)
+    mid = _upload(client)
+    main.tasks._tasks.clear()  # simulate process restart (resume's use case)
+    storage.update_meta(mid, status="asr_running")  # simulate crash mid-ASR
+    body = client.post(f"/api/meetings/{mid}/resume").json()
+    assert body["action"] == "run_pipeline"
+    assert seen["task_id"] == body["task_id"]
+
+
+def test_asr_settings_rejects_sidecar_until_v05(client, monkeypatch):
+    monkeypatch.setattr(main, "_persist_asr_config", lambda: None)
+    r = client.post("/api/settings/asr", json={"stream_engine": "sidecar"})
+    assert r.status_code == 400
+    r = client.post("/api/settings/asr", json={"stream_engine": "funasr"})
+    assert r.status_code == 200
 
 
 def test_browse_lists_only_subdirs(client, tmp_path):

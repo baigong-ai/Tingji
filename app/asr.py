@@ -116,17 +116,18 @@ def unload_model() -> bool:
     Refuses while a transcription is in flight (_busy). Best-effort GC +
     torch cache clear afterwards so RSS actually drops.
     """
-    global _model, _stream_model
-    if _model is None and _stream_model is None:
+    global _model, _stream_model, _punc_model
+    if _model is None and _stream_model is None and _punc_model is None:
         return False
     if _busy or _stream_busy:
         log.info("unload skipped: transcription/stream in flight")
         return False
     with _lock:
-        if _model is None and _stream_model is None:
+        if _model is None and _stream_model is None and _punc_model is None:
             return False
         _model = None
         _stream_model = None
+        _punc_model = None
     gc.collect()
     gc.collect()
     _release_os_memory()

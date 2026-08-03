@@ -69,3 +69,45 @@ def test_log_persistence(data_dir):
     assert len(logs) == 2
     assert logs[0]["msg"] == "hello"
     assert logs[1]["level"] == "warn"
+
+
+def test_invalid_meeting_id_rejected(data_dir):
+    """Path traversal must never reach the filesystem layer."""
+    assert storage.get_meeting("..") is None
+    assert storage.get_meeting("../..") is None
+    assert storage.get_meeting("foo/bar") is None
+    assert storage.get_meeting("") is None
+    storage.delete_meeting("..")            # no-op: data_dir itself must survive
+    assert data_dir.exists()
+    assert storage.move_to_trash("..") is None
+
+
+def test_generated_ids_pass_validation(data_dir):
+    src = data_dir.parent / "a.wav"
+    src.write_bytes(b"x")
+    mid = storage.create_meeting("产品 周会 v2", str(src), "wav")
+    assert storage.is_valid_meeting_id(mid)
+    assert storage.get_meeting(mid) is not None
+
+
+def test_corrupt_meta_does_not_break_listing(data_dir):
+    """One damaged meta.json must not 500 the whole meeting list."""
+    src = data_dir.parent / "a.wav"
+    src.write_bytes(b"x")
+    good = storage.create_meeting("good", str(src), "wav")
+    bad = storage.create_meeting("bad", str(src), "wav")
+    (data_dir / bad / "meta.json").write_text("{broken json", encoding="utf-8")
+    items = storage.list_meetings()
+    assert [i["id"] for i in items] == [good]
+    assert storage.get_meeting(bad) is None
+    # update_meta on a corrupt meta is a safe no-op
+    storage.update_meta(bad, status="error")
+
+
+def test_update_meta_is_atomic(data_dir):
+    src = data_dir.parent / "a.wav"
+    src.write_bytes(b"x")
+    mid = storage.create_meeting("t", str(src), "wav")
+    storage.update_meta(mid, status="done")
+    assert not (data_dir / mid / "meta.json.tmp").exists()
+    assert storage.get_meeting(mid)["meta"]["status"] == "done"

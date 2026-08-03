@@ -153,7 +153,7 @@ async def upload(
     meeting_id = storage.create_meeting(title=title, audio_path=str(tmp_path), ext=ext)
     tmp_path.unlink(missing_ok=True)
     state = tasks.register_task(meeting_id)
-    background_tasks.add_task(tasks.run_pipeline, meeting_id, config)
+    background_tasks.add_task(tasks.run_pipeline, meeting_id, config, state["task_id"])
     return {"task_id": state["task_id"], "meeting_id": meeting_id}
 
 
@@ -686,7 +686,10 @@ async def export(meeting_id: str, format: str = "md"):
     mdir = storage.meeting_dir(meeting_id)
     if format == "md":
         names = (data.get("meta") or {}).get("speaker_names") or {}
-        text = (mdir / "processed.md").read_text(encoding="utf-8")
+        processed_path = mdir / "processed.md"
+        if not processed_path.exists():
+            raise HTTPException(400, "会议尚未整理，无 md 可导出（请先用 txt/srt 或完成整理）")
+        text = processed_path.read_text(encoding="utf-8")
         if names:
             text = re.sub(r"说话人\s*(\d+)", lambda m: _spk_label(int(m.group(1)), names), text)
         path = mdir / "export.md"
@@ -711,8 +714,21 @@ async def export(meeting_id: str, format: str = "md"):
 async def retry_llm(meeting_id: str, background_tasks: BackgroundTasks):
     if storage.get_meeting(meeting_id) is None:
         raise HTTPException(404)
-    task_id = await tasks.retry_llm(meeting_id, config)
-    return {"task_id": task_id}
+    state = tasks.register_task(meeting_id)
+    background_tasks.add_task(tasks.retry_llm, meeting_id, config, state["task_id"])
+    return {"task_id": state["task_id"]}
+
+
+def _start_retry_llm(background_tasks: BackgroundTasks, meeting_id: str) -> str:
+    """Register a task and run the LLM pipeline in the background.
+
+    Running it inside the request handler meant a client disconnect cancelled
+    the whole multi-minute polish+summarize and left meta stuck in
+    llm_polishing/llm_summarizing.
+    """
+    state = tasks.register_task(meeting_id)
+    background_tasks.add_task(tasks.retry_llm, meeting_id, config, state["task_id"])
+    return state["task_id"]
 
 
 @app.post("/api/meetings/{meeting_id}/resume")
@@ -730,11 +746,11 @@ async def resume_meeting(meeting_id: str, background_tasks: BackgroundTasks):
 
     if status in {"pending", "converting", "asr_running"}:
         state = tasks.register_task(meeting_id)
-        background_tasks.add_task(tasks.run_pipeline, meeting_id, config)
+        background_tasks.add_task(tasks.run_pipeline, meeting_id, config, state["task_id"])
         return {"ok": True, "action": "run_pipeline", "task_id": state["task_id"], "status": status}
 
     if status in {"llm_polishing", "llm_summarizing"}:
-        task_id = await tasks.retry_llm(meeting_id, config)
+        task_id = _start_retry_llm(background_tasks, meeting_id)
         return {"ok": True, "action": "retry_llm", "task_id": task_id, "status": status}
 
     if status == "error":
@@ -742,10 +758,10 @@ async def resume_meeting(meeting_id: str, background_tasks: BackgroundTasks):
         # ASR-stage errors can be retried by re-running the pipeline.
         if any(k in err for k in ("convert", "asr", "识别", "音频")):
             state = tasks.register_task(meeting_id)
-            background_tasks.add_task(tasks.run_pipeline, meeting_id, config)
+            background_tasks.add_task(tasks.run_pipeline, meeting_id, config, state["task_id"])
             return {"ok": True, "action": "run_pipeline", "task_id": state["task_id"], "status": status}
         # Otherwise retry LLM.
-        task_id = await tasks.retry_llm(meeting_id, config)
+        task_id = _start_retry_llm(background_tasks, meeting_id)
         return {"ok": True, "action": "retry_llm", "task_id": task_id, "status": status}
 
     return {"ok": False, "reason": "no_action", "status": status}
@@ -1084,6 +1100,10 @@ async def set_asr_settings(payload: dict):
         engine = str(engine).lower()
         if engine not in ("funasr", "sidecar"):
             raise HTTPException(400, "stream_engine must be funasr or sidecar")
+        if engine == "sidecar":
+            # Enhanced mode ships in v0.5 — the frontend greys it out, and the
+            # backend must enforce the same gate (don't allow selecting it).
+            raise HTTPException(400, "增强模式（GPU sidecar）将在 v0.5 提供，当前不可用")
         config.asr.stream_engine = engine
     if "stream_language" in payload:
         config.asr.stream_language = str(payload["stream_language"])
