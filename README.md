@@ -1,8 +1,10 @@
 [English](README.en.md) | 中文
 
-# 听记
+# 听记 (Tingji)
 
 > 本地会议录音转写与纪要——把录音丢进去，自动得到原文、整理稿和会议纪要。数据全程留在你自己的电脑上。
+>
+> **English**: Tingji is a local, offline meeting transcription & minutes tool — drop in a recording and get the raw transcript, a cleaned-up version, and structured meeting minutes, with speaker diarization. Nothing leaves your machine. See [README.en.md](README.en.md).
 
 ![首页](docs/screenshot-home.png)
 
