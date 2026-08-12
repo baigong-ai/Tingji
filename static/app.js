@@ -186,8 +186,8 @@ function showError(msg) {
 
 let allMeetings = [];
 const activeTags = new Set();
-const BUSY_STATUS = ['pending', 'converting', 'asr_running', 'llm_polishing', 'llm_summarizing'];
-const isFinished = s => !BUSY_STATUS.includes(s);
+// §7: 用 common.js 的 isProcessingStatus（含 live_recording），不再各文件各写一份。
+const isFinished = s => !isProcessingStatus(s);
 
 async function loadHistory() {
   const r = await fetch('/api/meetings');
@@ -508,6 +508,7 @@ const settingsBtn = document.getElementById('settings-btn');
 const settingsModal = document.getElementById('settings-modal');
 let browsePath = '';
 let previousDir = null;
+let dataDir = '';  // §7: 曾挂 window.__tingjiDataDir，改文件级 let
 
 settingsBtn.addEventListener('click', openSettings);
 document.getElementById('settings-close-btn').addEventListener('click', () => settingsModal.classList.add('hidden'));
@@ -522,7 +523,7 @@ document.querySelectorAll('.stab').forEach(btn => {
     document.querySelectorAll('.spanel').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
     document.querySelector(`.spanel[data-spanel="${btn.dataset.stab}"]`).classList.add('active');
-    if (btn.dataset.stab === 'dir') loadDir(window.__tingjiDataDir || '');
+    if (btn.dataset.stab === 'dir') loadDir(dataDir || '');
     if (btn.dataset.stab === 'llm') loadLLM();
     if (btn.dataset.stab === 'hotwords') loadHotwords();
     if (btn.dataset.stab === 'templates') loadTemplates();
@@ -534,9 +535,9 @@ async function openSettings() {
   settingsModal.classList.remove('hidden');
   try {
     const s = await fetch('/api/settings').then(r => r.json());
-    window.__tingjiDataDir = s.data_dir || '';
+    dataDir = s.data_dir || '';
   } catch {
-    window.__tingjiDataDir = '';
+    dataDir = '';
   }
   const active = document.querySelector('.stab.active');
   if (active) active.click();

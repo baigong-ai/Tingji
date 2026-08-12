@@ -63,10 +63,12 @@ class EmptyLLMResponse(RuntimeError):
 
 
 def _chat_api(prompt: str, cfg: LLMConfig, json_mode: bool) -> str:
+    # /no_think 后缀只对 Ollama 的思考型模型有意义（见 _chat_ollama 用原生 think:false），
+    # 对 GLM/DeepSeek 等 API 是无害但无意义的 prompt 污染，这里不追加。
     client = _client(cfg)
     kwargs = {
         "model": _model_name(cfg),
-        "messages": [{"role": "user", "content": prompt.rstrip() + "\n\n/no_think"}],
+        "messages": [{"role": "user", "content": prompt.rstrip()}],
         "temperature": cfg.temperature,
     }
     if json_mode:

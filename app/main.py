@@ -337,17 +337,25 @@ async def migrate_data(payload: dict):
     return {"moved": moved, "count": len(moved), "to_dir": str(dst), "errors": errors}
 
 
-def _persist_storage(data_dir: str | None = None, onboarded: bool | None = None) -> None:
+def _update_config_yaml(mutator):
+    """§7: 四个 _persist_* 的公共骨架——读 config.yaml → mutator(raw) 原地改 → safe_dump 回写。
+    减少重复与写穿风险；返回是否真的写了（config.yaml 不存在时跳过）。"""
     p = Path("config.yaml")
     if not p.exists():
         return
     raw = yaml.safe_load(p.read_text()) or {}
-    sec = raw.setdefault("storage", {})
-    if data_dir is not None:
-        sec["data_dir"] = data_dir
-    if onboarded is not None:
-        sec["onboarded"] = onboarded
+    mutator(raw)
     p.write_text(yaml.safe_dump(raw, allow_unicode=True, sort_keys=False), encoding="utf-8")
+
+
+def _persist_storage(data_dir: str | None = None, onboarded: bool | None = None) -> None:
+    def m(raw):
+        sec = raw.setdefault("storage", {})
+        if data_dir is not None:
+            sec["data_dir"] = data_dir
+        if onboarded is not None:
+            sec["onboarded"] = onboarded
+    _update_config_yaml(m)
 
 
 @app.get("/api/settings/llm")
@@ -430,23 +438,20 @@ async def list_llm_models(base_url: str = "http://localhost:11434/v1"):
 
 
 def _persist_llm_config() -> None:
-    p = Path("config.yaml")
-    if not p.exists():
-        return
-    raw = yaml.safe_load(p.read_text()) or {}
-    raw.setdefault("llm", {})
-    raw["llm"]["mode"] = config.llm.mode
-    raw["llm"]["api"] = {
-        "base_url": config.llm.api.base_url,
-        "api_key": config.llm.api.api_key,
-        "model": config.llm.api.model,
-    }
-    raw["llm"]["ollama"] = {
-        "base_url": config.llm.ollama.base_url,
-        "model": config.llm.ollama.model,
-        "api_key": config.llm.ollama.api_key,
-    }
-    p.write_text(yaml.safe_dump(raw, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    def m(raw):
+        raw.setdefault("llm", {})
+        raw["llm"]["mode"] = config.llm.mode
+        raw["llm"]["api"] = {
+            "base_url": config.llm.api.base_url,
+            "api_key": config.llm.api.api_key,
+            "model": config.llm.api.model,
+        }
+        raw["llm"]["ollama"] = {
+            "base_url": config.llm.ollama.base_url,
+            "model": config.llm.ollama.model,
+            "api_key": config.llm.ollama.api_key,
+        }
+    _update_config_yaml(m)
 
 
 @app.get("/api/browse")
@@ -702,21 +707,18 @@ async def set_server_settings(payload: dict):
 
 
 def _persist_server_config(host: str, port: int, idle_min: int, ssl=None) -> None:
-    p = Path("config.yaml")
-    if not p.exists():
-        return
-    raw = yaml.safe_load(p.read_text()) or {}
-    raw.setdefault("server", {})["host"] = host
-    raw["server"]["port"] = port
-    raw.setdefault("asr", {})["idle_unload_minutes"] = idle_min
-    if ssl is not None:
-        raw["server"]["ssl"] = {
-            "enabled": bool(ssl.enabled),
-            "cert": str(ssl.cert),
-            "key": str(ssl.key),
-            "auto_generate": bool(ssl.auto_generate),
-        }
-    p.write_text(yaml.safe_dump(raw, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    def m(raw):
+        raw.setdefault("server", {})["host"] = host
+        raw["server"]["port"] = port
+        raw.setdefault("asr", {})["idle_unload_minutes"] = idle_min
+        if ssl is not None:
+            raw["server"]["ssl"] = {
+                "enabled": bool(ssl.enabled),
+                "cert": str(ssl.cert),
+                "key": str(ssl.key),
+                "auto_generate": bool(ssl.auto_generate),
+            }
+    _update_config_yaml(m)
 
 
 @app.get("/api/meetings/{meeting_id}")
@@ -1417,12 +1419,9 @@ async def set_asr_settings(payload: dict):
 
 
 def _persist_asr_config() -> None:
-    p = Path("config.yaml")
-    if not p.exists():
-        return
-    raw = yaml.safe_load(p.read_text()) or {}
-    sec = raw.setdefault("asr", {})
-    sec["stream_engine"] = config.asr.stream_engine
-    sec["stream_language"] = config.asr.stream_language
-    sec["sidecar_url"] = config.asr.sidecar_url
-    p.write_text(yaml.safe_dump(raw, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    def m(raw):
+        sec = raw.setdefault("asr", {})
+        sec["stream_engine"] = config.asr.stream_engine
+        sec["stream_language"] = config.asr.stream_language
+        sec["sidecar_url"] = config.asr.sidecar_url
+    _update_config_yaml(m)

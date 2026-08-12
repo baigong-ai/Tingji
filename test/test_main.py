@@ -388,6 +388,22 @@ def test_lan_token_accepts_correct_token_and_loopback(client, monkeypatch):
         monkeypatch.setattr(main.config.server, "lan_token", False)
 
 
+# --- §7: _update_config_yaml (shared persister skeleton) ---
+def test_update_config_yaml_mutates_and_writes(tmp_path, monkeypatch):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("server:\n  host: 0.0.0.0\n  port: 8000\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    def bump_port(raw):
+        raw.setdefault("server", {})["port"] = 9000
+
+    main._update_config_yaml(bump_port)
+    assert "port: 9000" in cfg.read_text(encoding="utf-8")
+    # missing config.yaml → no-op, no crash
+    cfg.unlink()
+    main._update_config_yaml(bump_port)
+
+
 def _upload(client, title="T"):
     return client.post("/api/upload", files={"audio": ("a.wav", io.BytesIO(b"x"), "audio/wav")}, data={"title": title}).json()["meeting_id"]
 

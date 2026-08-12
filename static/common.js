@@ -68,6 +68,11 @@ function statusLabel(s) {
   }[s] || s;
 }
 
+// §7: "处理中"状态集合收敛到一处（app.js / meeting.js 原各声明一份且内容不一，
+// app.js 那份还漏了 live_recording）。
+const PROCESSING_STATUSES = ['pending', 'converting', 'asr_running', 'live_recording', 'llm_polishing', 'llm_summarizing'];
+function isProcessingStatus(s) { return PROCESSING_STATUSES.includes(s); }
+
 // === U3/U4：统一的模态焦点管理 + 消息对话框（替代原生 alert/confirm/prompt） ===
 // 各页在底部放一个 #msg-modal（见 index.html / meeting.html）；common.js 统一管焦点。
 let _modalLastFocus = null;

@@ -16,6 +16,7 @@ let meetingContext = '';
 let activeLine = null;
 let lastIdx = -1;
 let lastCompareScrollIdx = -1;
+let _compareSegs = [];  // §7: 对照视图的时间区间段（曾挂在 window.__tingjiCompareSegs，改文件级 let）
 
 // P3: timeupdate ~4Hz，每帧都 querySelectorAll 在长会议里是稳定大列表的重复开销。
 // 在 renderAll 重建 DOM 后缓存一次，renderAll 开头失效。
@@ -37,9 +38,9 @@ function fmtTs(ms) {
   return `${m}:${String(sec).padStart(2,'0')}`;
 }
 // fmtDate / escapeHtml / statusLabel 见 static/common.js
-const SPEAKER_COLORS = ['#1f3a5f', '#4a6741', '#b78038', '#c0392b', '#8e44ad', '#2c7a7b', '#a04900'];
-function spkColor(spk) { return SPEAKER_COLORS[Number(spk) % SPEAKER_COLORS.length] || SPEAKER_COLORS[0]; }
-function spkClass(spk) { return `spk-${Number(spk) % SPEAKER_COLORS.length}`; }
+// 颜色走 CSS var(--spk-N)，这里只需一个取模基数（与 style.css/meeting.css 的 spk-0..6 对齐）。
+const SPK_MOD = 7;
+function spkClass(spk) { return `spk-${Number(spk) % SPK_MOD}`; }
 function spkLabel(spk) {
   return speakerNames[String(spk)] || speakerNames[spk] || `说话人${spk}`;
 }
@@ -277,7 +278,7 @@ function highlightSentence(ms) {
 function highlightCompare(ms) {
   const lines = _compareRawLines || (_compareRawLines = document.querySelectorAll('#compare-raw-body .compare-raw-line'));
   const procBlocks = _compareProcBlocks || (_compareProcBlocks = document.querySelectorAll('#compare-processed-body .compare-proc-block'));
-  const segs = window.__tingjiCompareSegs || [];
+  const segs = _compareSegs || [];
   if (!lines.length || !allSentences.length || !procBlocks.length) return;
 
   // 二分找当前播放到的原句
@@ -414,7 +415,7 @@ function renderCompare(md, sentences) {
   } else {
     procHtml = '<p class="empty-state">（暂无整理版）</p>';
   }
-  window.__tingjiCompareSegs = segs;
+  _compareSegs = segs;
   lastCompareScrollIdx = -1;
   return { rawHtml, procHtml, segs };
 }
@@ -1032,7 +1033,7 @@ async function refreshLog() {
     } else {
       logElapsed.textContent = '';
     }
-    const processing = ['pending','converting','asr_running','llm_polishing','llm_summarizing'].includes(d.status);
+    const processing = isProcessingStatus(d.status);
     if (logs.length && processing) {
       const since = Math.round(Math.max(0, now - logs[logs.length - 1].ts));
       if (since >= 15) {
@@ -1059,9 +1060,7 @@ async function refreshLog() {
 // 没有"还会更新"的提示。这里按间隔轮询状态，到终态自动整页刷新。
 const STATUS_POLL_MS = 2500;
 let statusTimer = null;
-function isProcessingStatus(s) {
-  return ['pending','converting','asr_running','llm_polishing','llm_summarizing'].includes(s);
-}
+// isProcessingStatus / PROCESSING_STATUSES 见 common.js（§7 收敛）
 function pollStatusIfProcessing() {
   if (statusTimer) clearTimeout(statusTimer);
   if (!isProcessingStatus(currentStatus)) return;
@@ -1118,7 +1117,7 @@ async function load() {
     document.getElementById('m-meta').textContent = metaLine;
     currentStatus = meta.status;
     const retryBtn = document.getElementById('retry-btn');
-    const processing = ['pending','converting','asr_running','llm_polishing','llm_summarizing'];
+    const processing = PROCESSING_STATUSES;
     if (!processing.includes(meta.status)) {
       retryBtn.classList.remove('hidden');
       retryBtn.textContent = meta.status === 'asr_done' ? '开始整理'
