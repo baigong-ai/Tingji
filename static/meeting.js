@@ -17,6 +17,19 @@ let activeLine = null;
 let lastIdx = -1;
 let lastCompareScrollIdx = -1;
 
+// P3: timeupdate ~4Hz，每帧都 querySelectorAll 在长会议里是稳定大列表的重复开销。
+// 在 renderAll 重建 DOM 后缓存一次，renderAll 开头失效。
+let _transcriptLines = null;
+let _compareRawLines = null;
+let _compareProcBlocks = null;
+let _procSegs = null;
+function invalidateDomCache() {
+  _transcriptLines = _compareRawLines = _compareProcBlocks = _procSegs = null;
+}
+function transcriptLines() {
+  return _transcriptLines || (_transcriptLines = document.querySelectorAll('#transcript .transcript-line'));
+}
+
 function fmtTs(ms) {
   const s = Math.floor(ms / 1000);
   const m = Math.floor(s / 60);
@@ -62,8 +75,8 @@ function renderSummaryJson(d) {
 audioPlayer.src = `/api/meetings/${meetingId}/audio`;
 
 document.querySelectorAll('.tab-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    if (editingTab && editDirty && !confirm('当前编辑尚未保存，切换后将丢弃修改，继续？')) return;
+  btn.addEventListener('click', async () => {
+    if (editingTab && editDirty && !await confirmDialog('当前编辑尚未保存，切换后将丢弃修改，继续？')) return;
     if (editingTab) { editingTab = null; editDirty = false; renderAll(); }
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
@@ -111,7 +124,7 @@ async function runPolish() {
     });
     location.reload();
   } catch (e) {
-    alert('整理失败: ' + e.message);
+    await alertDialog('整理失败: ' + e.message);
     location.reload();
   }
 }
@@ -129,9 +142,9 @@ resumeBtn.addEventListener('click', async () => {
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.detail || '恢复失败');
     if (d.reason === 'already_running') {
-      alert('任务其实仍在运行中，无需恢复。可打开「日志」查看最新进度。');
+      await alertDialog('任务其实仍在运行中，无需恢复。可打开「日志」查看最新进度。');
     } else if (d.action === 'mark_error') {
-      alert('实时录音已中断，会议被标记为失败。');
+      await alertDialog('实时录音已中断，会议被标记为失败。');
       location.reload();
     } else if ((d.action === 'run_pipeline' || d.action === 'retry_llm') && d.task_id) {
       resumeBtn.textContent = '恢复中…';
@@ -147,10 +160,10 @@ resumeBtn.addEventListener('click', async () => {
       });
       location.reload();
     } else {
-      alert('当前状态无需恢复（' + (d.reason || 'no_action') + '）。');
+      await alertDialog('当前状态无需恢复（' + (d.reason || 'no_action') + '）。');
     }
   } catch (e) {
-    alert('恢复失败: ' + e.message);
+    await alertDialog('恢复失败: ' + e.message);
     location.reload();
   } finally {
     resumeBtn.disabled = false;
@@ -216,7 +229,7 @@ audioPlayer.addEventListener('timeupdate', () => {
   const ms = audioPlayer.currentTime * 1000;
   highlightTimelineSpeaker(ms);
   if (document.getElementById('tab-raw').classList.contains('active')) {
-    highlightSentence('#transcript .transcript-line', ms);
+    highlightSentence(ms);
   } else if (document.getElementById('tab-compare').classList.contains('active')) {
     highlightCompare(ms);
   } else if (document.getElementById('tab-processed').classList.contains('active')) {
@@ -246,8 +259,8 @@ function maybeSkipSilence() {
   audioPlayer.currentTime = next.start / 1000;
 }
 
-function highlightSentence(selector, ms) {
-  const lines = document.querySelectorAll(selector);
+function highlightSentence(ms) {
+  const lines = transcriptLines();
   if (!lines.length || !allSentences.length) return;
   let idx = (lastIdx >= 0 && allSentences[lastIdx] && ms >= allSentences[lastIdx].start) ? lastIdx : 0;
   while (idx + 1 < allSentences.length && allSentences[idx + 1].start <= ms) idx++;
@@ -262,8 +275,8 @@ function highlightSentence(selector, ms) {
 }
 
 function highlightCompare(ms) {
-  const lines = document.querySelectorAll('#compare-raw-body .compare-raw-line');
-  const procBlocks = document.querySelectorAll('#compare-processed-body .compare-proc-block');
+  const lines = _compareRawLines || (_compareRawLines = document.querySelectorAll('#compare-raw-body .compare-raw-line'));
+  const procBlocks = _compareProcBlocks || (_compareProcBlocks = document.querySelectorAll('#compare-processed-body .compare-proc-block'));
   const segs = window.__tingjiCompareSegs || [];
   if (!lines.length || !allSentences.length || !procBlocks.length) return;
 
@@ -299,7 +312,7 @@ function highlightCompare(ms) {
 }
 
 function highlightProcSegment(ms) {
-  const segs = document.querySelectorAll('#processed-md .proc-seg[data-start]:not([data-start=""])');
+  const segs = _procSegs || (_procSegs = document.querySelectorAll('#processed-md .proc-seg[data-start]:not([data-start=""])'));
   if (!segs.length) return;
   let target = null;
   for (const seg of segs) {
@@ -407,45 +420,56 @@ function renderCompare(md, sentences) {
 }
 
 // hover 跨栏高亮（按时间区间，只高亮不滚动，避免乱跳）；点击定位音频
+// P6: 用事件委托（每栏一个 mouseover/mouseout/click）替代每行绑 3 个监听器，
+// 长会议数百行时不再随 renderAll 反复重绑 O(n) 监听器。
 function setupCompareHover(sentences, segs) {
-  const rawLines = document.querySelectorAll('#compare-raw-body .compare-raw-line');
-  const procBlocks = document.querySelectorAll('#compare-processed-body .compare-proc-block');
+  const rawCol = document.getElementById('compare-raw-body');
+  const procCol = document.getElementById('compare-processed-body');
   if (!segs || !segs.length) return;
   const clearHover = () => {
-    rawLines.forEach(l => l.classList.remove('compare-link-active'));
-    procBlocks.forEach(b => b.classList.remove('compare-link-active'));
+    rawCol.querySelectorAll('.compare-link-active').forEach(l => l.classList.remove('compare-link-active'));
+    procCol.querySelectorAll('.compare-link-active').forEach(b => b.classList.remove('compare-link-active'));
   };
-  rawLines.forEach((line, idx) => {
-    const sent = sentences[idx];
-    if (!sent) return;
-    line.addEventListener('mouseenter', () => {
-      clearHover();
-      line.classList.add('compare-link-active');
-      procBlocks.forEach((b, i) => {
-        const seg = segs[i];
-        if (seg && sent.start >= seg.start && sent.start < seg.end) b.classList.add('compare-link-active');
-      });
+  const leaving = (container) => (e) => {
+    const el = e.target.closest('.compare-raw-line, .compare-proc-block');
+    if (el && (!e.relatedTarget || !el.contains(e.relatedTarget))) clearHover();
+  };
+  rawCol.onmouseover = (e) => {
+    const line = e.target.closest('.compare-raw-line'); if (!line) return;
+    const sent = sentences[Number(line.dataset.idx)]; if (!sent) return;
+    clearHover(); line.classList.add('compare-link-active');
+    procCol.querySelectorAll('.compare-proc-block').forEach((b, i) => {
+      const seg = segs[i];
+      if (seg && sent.start >= seg.start && sent.start < seg.end) b.classList.add('compare-link-active');
     });
-    line.addEventListener('mouseleave', clearHover);
-    line.addEventListener('click', () => { audioPlayer.currentTime = sent.start / 1000; });
-  });
-  procBlocks.forEach((block, i) => {
-    const seg = segs[i];
-    if (!seg) return;
-    block.addEventListener('mouseenter', () => {
-      clearHover();
-      block.classList.add('compare-link-active');
-      rawLines.forEach((line, idx) => {
-        const s = sentences[idx];
-        if (s.start >= seg.start && s.start < seg.end) line.classList.add('compare-link-active');
-      });
+  };
+  rawCol.onmouseout = leaving(rawCol);
+  rawCol.onclick = (e) => {
+    const line = e.target.closest('.compare-raw-line'); if (!line) return;
+    const sent = sentences[Number(line.dataset.idx)];
+    if (sent) audioPlayer.currentTime = sent.start / 1000;
+  };
+  procCol.onmouseover = (e) => {
+    const block = e.target.closest('.compare-proc-block'); if (!block) return;
+    const blocks = Array.from(procCol.querySelectorAll('.compare-proc-block'));
+    const seg = segs[blocks.indexOf(block)]; if (!seg) return;
+    clearHover(); block.classList.add('compare-link-active');
+    rawCol.querySelectorAll('.compare-raw-line').forEach((line, idx) => {
+      const s = sentences[idx];
+      if (s && s.start >= seg.start && s.start < seg.end) line.classList.add('compare-link-active');
     });
-    block.addEventListener('mouseleave', clearHover);
-    block.addEventListener('click', () => { audioPlayer.currentTime = seg.start / 1000; });
-  });
+  };
+  procCol.onmouseout = leaving(procCol);
+  procCol.onclick = (e) => {
+    const block = e.target.closest('.compare-proc-block'); if (!block) return;
+    const blocks = Array.from(procCol.querySelectorAll('.compare-proc-block'));
+    const seg = segs[blocks.indexOf(block)];
+    if (seg) audioPlayer.currentTime = seg.start / 1000;
+  };
 }
 
 function renderAll() {
+  invalidateDomCache();  // P3: 即将重建 DOM，缓存作废，渲染后重填
   renderSpeakersBar(allSpkCount);
   renderTimeline();
   renderRaw(document.getElementById('transcript'), allSentences, true);
@@ -462,6 +486,11 @@ function renderAll() {
   document.getElementById('compare-raw-body').innerHTML = cmp.rawHtml;
   document.getElementById('compare-processed-body').innerHTML = cmp.procHtml;
   setupCompareHover(allSentences, cmp.segs);
+  // P3: 重建完毕，填缓存供 timeupdate 高频查询复用
+  _transcriptLines = document.querySelectorAll('#transcript .transcript-line');
+  _compareRawLines = document.querySelectorAll('#compare-raw-body .compare-raw-line');
+  _compareProcBlocks = document.querySelectorAll('#compare-processed-body .compare-proc-block');
+  _procSegs = document.querySelectorAll('#processed-md .proc-seg[data-start]:not([data-start=""])');
   activeLine = null;
   lastIdx = -1;
   updateEditButtons();
@@ -478,8 +507,8 @@ function updateEditButtons() {
   if (sumTools) sumTools.classList.toggle('hidden', (!currentSummary && !currentSummaryJson) || editingTab === 'summary');
 }
 
-function cancelEdit() {
-  if (editDirty && !confirm('有未保存的修改，确定放弃？')) return;
+async function cancelEdit() {
+  if (editDirty && !await confirmDialog('有未保存的修改，确定放弃？')) return;
   editingTab = null;
   editDirty = false;
   renderAll();
@@ -641,7 +670,7 @@ function renderTimeline() {
       const rawTab = document.querySelector('.tab-btn[data-tab="raw"]');
       if (rawTab && !document.getElementById('tab-raw').classList.contains('active')) rawTab.click();
       lastIdx = -1;
-      highlightSentence('#transcript .transcript-line', start * 1000);
+      highlightSentence(start * 1000);
     };
     seg.addEventListener('click', go);
     seg.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
@@ -662,7 +691,7 @@ function highlightTimelineSpeaker(ms) {
 async function editSpeaker(spk) {
   const fallback = `说话人${spk}`;
   const cur = speakerNames[String(spk)] || fallback;
-  const name = prompt(`给「${cur}」起个真实名字（留空恢复默认）:`, cur === fallback ? '' : cur);
+  const name = await promptDialog(`给「${cur}」起个真实名字（留空恢复默认）:`, cur === fallback ? '' : cur);
   if (name === null) return;
   const trimmed = name.trim();
   if (trimmed && trimmed !== fallback) {
@@ -675,7 +704,7 @@ async function editSpeaker(spk) {
       method: 'PUT', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ names: speakerNames })
     });
-  } catch (e) { alert('保存失败: ' + e.message); }
+  } catch (e) { await alertDialog('保存失败: ' + e.message); }
   renderAll();
   doSearch(document.getElementById('search-input').value);
 }
@@ -705,7 +734,7 @@ function cancelMerge() {
   mergeCancelBtn.classList.add('hidden');
   setMergeHint('');
 }
-function onMergeChipClick(i, chip) {
+async function onMergeChipClick(i, chip) {
   if (mergeSource === null) {
     mergeSource = i;
     document.querySelectorAll('#speakers-bar .spk-chip').forEach(c => c.classList.remove('merge-src'));
@@ -716,14 +745,16 @@ function onMergeChipClick(i, chip) {
   if (i === mergeSource) { cancelMerge(); return; }
   const src = mergeSource, tgt = i;
   cancelMerge();
-  if (!confirm(`把「${spkLabel(src)}」并入「${spkLabel(tgt)}」？前者所有句子会归到后者，可在详情页继续校对。`)) return;
-  fetch(`/api/meetings/${meetingId}/speakers/remap`, {
-    method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ map: { [src]: tgt } })
-  }).then(r => r.json()).then(d => {
+  if (!await confirmDialog(`把「${spkLabel(src)}」并入「${spkLabel(tgt)}」？前者所有句子会归到后者，可在详情页继续校对。`)) return;
+  try {
+    const r = await fetch(`/api/meetings/${meetingId}/speakers/remap`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ map: { [src]: tgt } })
+    });
+    const d = await r.json().catch(() => ({}));
     if (d && d.ok) { load(); }
-    else { alert('合并失败：' + (d?.detail || '未知错误')); }
-  }).catch(e => alert('合并失败：' + e.message));
+    else { await alertDialog('合并失败：' + (d?.detail || '未知错误')); }
+  } catch (e) { await alertDialog('合并失败：' + e.message); }
 }
 
 let editingIdx = -1;
@@ -1061,7 +1092,7 @@ function pollStatusIfProcessing() {
 async function load() {
   try {
     const r = await fetch(`/api/meetings/${meetingId}`);
-    if (!r.ok) { alert('会议不存在'); location.href = '/'; return; }
+    if (!r.ok) { await alertDialog('会议不存在'); location.href = '/'; return; }
     const data = await r.json();
     const meta = data.meta;
     speakerNames = meta.speaker_names || {};
@@ -1097,7 +1128,7 @@ async function load() {
     renderAll();
     pollStatusIfProcessing();
   } catch (e) {
-    alert('加载失败: ' + e.message);
+    await alertDialog('加载失败: ' + e.message);
   }
 }
 

@@ -354,6 +354,40 @@ def _docx_prefix():
     return "application/vnd.openxmlformats-officedocument"
 
 
+# --- S2: optional LAN access token ---
+def test_lan_token_off_is_open_by_default(client):
+    # default: lan_token False → no auth anywhere
+    assert client.get("/api/meetings").status_code == 200
+
+
+def test_lan_token_blocks_nonloopback_without_token(client, monkeypatch):
+    monkeypatch.setattr(main.config.server, "lan_token", True)
+    # TestClient's request.client.host is 'testclient' (not loopback) → guard active
+    try:
+        assert client.get("/api/meetings").status_code == 401
+        assert client.get("/api/browse").status_code == 401
+        # wrong token still blocked
+        assert client.get("/api/meetings", headers={"X-Tingji-Token": "wrong"}).status_code == 401
+    finally:
+        monkeypatch.setattr(main.config.server, "lan_token", False)
+
+
+def test_lan_token_accepts_correct_token_and_loopback(client, monkeypatch):
+    monkeypatch.setattr(main.config.server, "lan_token", True)
+    tok = main._lan_token()
+    try:
+        assert tok  # generated
+        # correct token via header
+        assert client.get("/api/meetings", headers={"X-Tingji-Token": tok}).status_code == 200
+        # correct token via query
+        assert client.get(f"/api/meetings?token={tok}").status_code == 200
+        # loopback origin bypasses regardless of token
+        assert main._is_loopback("127.0.0.1") is True
+        assert main._is_loopback("192.168.1.5") is False
+    finally:
+        monkeypatch.setattr(main.config.server, "lan_token", False)
+
+
 def _upload(client, title="T"):
     return client.post("/api/upload", files={"audio": ("a.wav", io.BytesIO(b"x"), "audio/wav")}, data={"title": title}).json()["meeting_id"]
 

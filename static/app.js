@@ -10,6 +10,10 @@ const queueEl = document.getElementById('queue');
 let queue = [];
 
 dropzone.addEventListener('click', () => fileInput.click());
+// U2: 键盘可达 —— div 模拟按钮，Enter/Space 触发文件选择
+dropzone.addEventListener('keydown', e => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
+});
 dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
 dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
 dropzone.addEventListener('drop', e => {
@@ -241,6 +245,9 @@ function renderHistory() {
 function buildRow(m) {
   const li = document.createElement('li');
   li.dataset.id = m.id;
+  li.tabIndex = 0;             // U2: 历史行键盘可达
+  li.setAttribute('role', 'link');
+  li.setAttribute('aria-label', `打开会议 ${m.title}`);
   const tags = m.tags || [];
   const tagsHtml = tags.map(t =>
     `<button class="tag-chip sm" data-tag="${escapeHtml(t)}">${escapeHtml(t)}</button>`).join('');
@@ -261,6 +268,9 @@ function buildRow(m) {
     </div>
   `;
   li.addEventListener('click', () => { location.href = `/m/${m.id}`; });
+  li.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); location.href = `/m/${m.id}`; }
+  });
   li.querySelectorAll('.htags .tag-chip').forEach(c => {
     c.addEventListener('click', e => {
       e.stopPropagation();
@@ -468,18 +478,18 @@ async function restoreTrash(name) {
     loadHistory();
   } else {
     const d = await r.json().catch(() => ({}));
-    alert('恢复失败：' + (d.detail || '未知错误'));
+    await alertDialog('恢复失败：' + (d.detail || '未知错误'));
   }
 }
 
 async function deleteTrash(name) {
-  if (!confirm('彻底删除后无法恢复，确定删除？')) return;
+  if (!await confirmDialog('彻底删除后无法恢复，确定删除？', { okText: '彻底删除' })) return;
   const r = await fetch(`/api/trash/${encodeURIComponent(name)}`, { method: 'DELETE' });
   if (r.ok) {
     await renderTrashList();
   } else {
     const d = await r.json().catch(() => ({}));
-    alert('删除失败：' + (d.detail || '未知错误'));
+    await alertDialog('删除失败：' + (d.detail || '未知错误'));
   }
 }
 
@@ -731,9 +741,9 @@ document.getElementById('tpl-new-btn').addEventListener('click', () => {
   loadTplFields();
   document.getElementById('tpl-name').focus();
 });
-document.getElementById('tpl-del-btn').addEventListener('click', () => {
+document.getElementById('tpl-del-btn').addEventListener('click', async () => {
   if (!tplList.length) return;
-  if (!confirm('删除当前模板？')) return;
+  if (!await confirmDialog('删除当前模板？')) return;
   tplList.splice(tplIdx, 1);
   if (!tplList.length) tplList.push(blankTpl());
   tplIdx = Math.min(tplIdx, tplList.length - 1);

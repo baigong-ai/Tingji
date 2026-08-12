@@ -167,7 +167,7 @@ if [ "$ACTION" = "daemon" ]; then
   echo "后台启动服务，监听 ${HOST}:${PORT}（PID → ${PID_FILE}，日志 → ${LOG_FILE}）"
   # nohup + disown: SIGHUP ignored, survives terminal close. (setsid is not
   # in stock macOS, nohup is.)
-  nohup .venv/bin/uvicorn app.main:app --host "$HOST" --port "$PORT" $SSL_ARGS \
+  nohup .venv/bin/uvicorn app.main:app --host "$HOST" --port "$PORT" --workers 1 $SSL_ARGS \
     >"$LOG_FILE" 2>&1 < /dev/null &
   DAEMON_PID=$!
   echo "$DAEMON_PID" > "$PID_FILE"
@@ -187,4 +187,5 @@ fi
 
 echo "启动服务，监听 ${HOST}:${PORT}"
 print_urls
-exec .venv/bin/uvicorn app.main:app --host "$HOST" --port "$PORT" $SSL_ARGS
+# --workers 1：config/_tasks 是进程内可变全局，多 worker 下会静默坏掉（设置改动与任务状态不跨进程）。
+exec .venv/bin/uvicorn app.main:app --host "$HOST" --port "$PORT" --workers 1 $SSL_ARGS

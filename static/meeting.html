@@ -138,7 +138,7 @@
     </div>
   </div>
 
-  <div id="polish-setup-modal" class="modal hidden">
+  <div id="polish-setup-modal" class="modal hidden" role="dialog" aria-modal="true">
     <div class="modal-card">
       <h3 id="polish-setup-title">开始整理</h3>
       <p class="hint">确认识别原文没问题后开始。会议背景/术语会帮模型改准人名和专有名词。</p>
@@ -149,6 +149,14 @@
         <button id="polish-setup-cancel" type="button">取消</button>
         <button id="polish-setup-confirm" type="button" class="primary">开始整理</button>
       </div>
+    </div>
+  </div>
+
+  <div id="msg-modal" class="modal hidden" role="dialog" aria-modal="true" aria-hidden="true">
+    <div class="modal-card dlg-card">
+      <h3 id="msg-title">提示</h3>
+      <div id="msg-body"></div>
+      <div id="msg-actions" class="modal-actions"></div>
     </div>
   </div>
 
@@ -172,7 +180,7 @@
 
   <script src="/static/access.js?v=1"></script>
   <script src="/static/marked.min.js?v=1"></script>
-  <script src="/static/common.js?v=2"></script>
-  <script src="/static/meeting.js?v=25"></script>
+  <script src="/static/common.js?v=3"></script>
+  <script src="/static/meeting.js?v=26"></script>
 </body>
 </html>

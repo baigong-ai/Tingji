@@ -140,16 +140,30 @@ def main() -> int:
             fmts = page.eval_on_selector_all(
                 "#export-format option", "els => els.map(e => e.value)")
             check("导出下拉含 docx/minutes", "docx" in fmts and "minutes" in fmts, repr(fmts))
-            # merge speaker 0 -> 1 (the bar has 2 chips; merge reduces to 1)
+            # merge speaker 0 -> 1 (the bar has 2 chips; merge reduces to 1).
+            # U4: merge confirm now uses the custom confirmDialog (#msg-modal), not native confirm().
             page.click("#merge-speakers-btn")
             page.click('#speakers-bar .spk-chip[data-spk="0"]')  # source (被并入)
-            page.once("dialog", lambda d: d.accept())             # confirm()
-            page.click('#speakers-bar .spk-chip[data-spk="1"]')   # target (保留)
+            page.click('#speakers-bar .spk-chip[data-spk="1"]')   # target (保留) -> 弹 #msg-modal
+            page.wait_for_selector("#msg-modal:not(.hidden)", timeout=8000)
+            check("合并确认弹窗 #msg-modal 出现", page.is_visible("#msg-ok"))
+            page.click("#msg-ok")
             page.wait_for_function(
                 "() => document.querySelectorAll('#speakers-bar .spk-chip').length === 1",
                 timeout=8000)
             sj = json.loads(urllib.request.urlopen(f"{BASE}/api/meetings/{qmid}").read())
             check("说话人合并后 spk_count=1", sj["meta"]["spk_count"] == 1, str(sj["meta"]["spk_count"]))
+            # U4: 说话人改名走 promptDialog（#msg-modal 带 input）
+            page.click('#speakers-bar .spk-chip')
+            page.wait_for_selector("#msg-input", timeout=8000)
+            page.fill("#msg-input", "张三")
+            page.click("#msg-ok")
+            page.wait_for_function(
+                "() => document.getElementById('msg-modal').classList.contains('hidden')",
+                timeout=8000)
+            sj = json.loads(urllib.request.urlopen(f"{BASE}/api/meetings/{qmid}").read())
+            check("promptDialog 改名生效", sj["meta"]["speaker_names"].get("0") == "张三",
+                  str(sj["meta"].get("speaker_names")))
 
             # ===== resume button on error status =====
             storage.update_meta(mid, status="error", error="模拟失败")

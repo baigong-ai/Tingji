@@ -237,6 +237,7 @@ git clone --depth 1 https://www.modelscope.cn/iic/speech_campplus_sv_zh-cn_16k-c
 | `llm.api.*` | OpenAI 兼容 API（base_url / api_key / model） |
 | `llm.ollama.*` | 本地 Ollama（base_url / model） |
 | `llm.polish_chunk_minutes` | 整理分段时长（分钟），默认 6 |
+| `server.lan_token` | 默认 `false`。设 `true` 后开启**局域网访问令牌**：非本机（非 127.x）访问 `/api/*` 与 `/ws/*` 需带令牌（首次启动会生成并打印一个带 `?token=…` 的局域网地址，浏览器打开一次即记入本地，之后自动带上）。本机访问不受影响。在 `0.0.0.0` 开放给局域网时建议开启 |
 
 `api_key` 支持 `${LLM_API_KEY}` 占位，从环境变量读取。
 

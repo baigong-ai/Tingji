@@ -5,6 +5,7 @@ import logging
 import os
 import platform
 import re
+import secrets
 import shutil
 import socket
 import subprocess
@@ -21,6 +22,7 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import JSONResponse
 
 from app import asr, audio, llm, storage, stream, tasks
 from app.config import APIConfig, Config, LLMConfig, OllamaConfig, load_config
@@ -102,6 +104,11 @@ def _idle_check(threshold_s: int) -> bool:
 
 @asynccontextmanager
 async def lifespan(app):
+    if config is not None and getattr(config.server, "lan_token", False):
+        tok = _lan_token()
+        if tok:
+            log.info("LAN 访问令牌已启用：局域网浏览器请带令牌访问，如 http://<本机IP>:%s/?token=%s",
+                     _RUNNING_PORT, tok)
     watcher = asyncio.create_task(_idle_watcher())
     try:
         yield
@@ -115,6 +122,45 @@ async def lifespan(app):
 
 app = FastAPI(title="FunASR Meeting Transcription", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+# --- S2: 可选 LAN 访问令牌（防止局域网他人随意访问） ------------------------
+def _is_loopback(host: str) -> bool:
+    h = (host or "").lower()
+    return h in ("127.0.0.1", "::1", "::ffff:127.0.0.1", "localhost") or h.startswith("127.")
+
+
+def _lan_token() -> str | None:
+    """Load (or lazily create) the LAN access token under the data dir."""
+    try:
+        f = storage.get_data_dir() / ".lan_token"
+        if f.exists():
+            t = f.read_text(encoding="utf-8").strip()
+            if t:
+                return t
+        t = secrets.token_urlsafe(16)
+        f.write_text(t, encoding="utf-8")
+        return t
+    except Exception as e:
+        log.warning("lan token load failed: %s", e)
+        return None
+
+
+@app.middleware("http")
+async def _lan_token_guard(request, call_next):
+    """When server.lan_token is on, non-loopback /api/* and /ws/* require the
+    token (X-Tingji-Token header or ?token=). Local (loopback) use is unaffected.
+    Closes S2: anyone on the LAN could otherwise list dirs / migrate (rmtree)."""
+    if getattr(config.server, "lan_token", False) if config else False:
+        host = request.client.host if request.client else ""
+        path = request.url.path
+        if not _is_loopback(host) and (path.startswith("/api/") or path.startswith("/ws/")):
+            tok = _lan_token()
+            provided = request.headers.get("x-tingji-token") or request.query_params.get("token")
+            if tok and provided != tok:
+                return JSONResponse({"detail": "需要访问令牌（LAN 令牌）"}, status_code=401)
+    return await call_next(request)
+
 
 ALLOWED_AUDIO_EXTS = {"wav", "mp3", "m4a", "aac", "flac", "ogg", "opus", "webm"}
 

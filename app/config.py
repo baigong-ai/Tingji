@@ -58,6 +58,9 @@ class ServerConfig:
     host: str
     port: int
     ssl: SSLConfig = None
+    # S2: 可选轻鉴权。开启后，非本机（非 loopback）的 /api/* 与 /ws/* 请求必须带访问令牌，
+    # 防止局域网内他人随意浏览目录 / 迁移（rmtree）你的数据。默认关闭，本地单用户无感。
+    lan_token: bool = False
 
     def __post_init__(self):
         if self.ssl is None:

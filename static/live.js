@@ -69,6 +69,18 @@ async function fetchEngineInfo() {
     optEnh.onclick = () => {
       if (!optEnh.classList.contains("disabled")) selectEngine("sidecar");
     };
+    // U2: 引擎选择键盘可达（div 模拟 radio）
+    [optStd, optEnh].forEach(opt => {
+      opt.setAttribute("tabindex", opt.classList.contains("disabled") ? "-1" : "0");
+      opt.setAttribute("role", "radio");
+      opt.setAttribute("aria-checked", opt.classList.contains("active") ? "true" : "false");
+      opt.addEventListener("keydown", e => {
+        if (e.key !== "Enter" && e.key !== " ") return;
+        if (opt.classList.contains("disabled")) return;
+        e.preventDefault();
+        opt.click();
+      });
+    });
 
     const statusLine = $("live-status-line");
     if (!engineReady && currentEngine === "sidecar") {
@@ -182,7 +194,8 @@ async function start() {
   }
 
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  ws = new WebSocket(`${proto}//${location.host}/ws/realtime/${meetingId}`);
+  const tokQs = window.__tingjiLanToken ? `?token=${encodeURIComponent(window.__tingjiLanToken)}` : "";
+  ws = new WebSocket(`${proto}//${location.host}/ws/realtime/${meetingId}${tokQs}`);
 
   ws.onopen = async () => {
     setStatus("连接成功，正在请求麦克风…");
