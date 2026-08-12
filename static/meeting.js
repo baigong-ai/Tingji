@@ -34,11 +34,12 @@ function applySpeakerNamesToMd(md) {
   if (!md) return md;
   return md.replace(/说话人\s*(\d+)/g, (m, n) => speakerNames[n] ? speakerNames[n] : `说话人${n}`);
 }
-// markdown 来源不可信（LLM 输出 / 用户输入的说话人名），先转义再解析，禁掉 inline HTML
+// markdown 来源不可信（LLM 输出 / 用户输入的说话人名），先转义再解析，禁掉 inline HTML，
+// 再 sanitize 链接协议（见 common.js:sanitizeMdHtml）
 function renderMd(md) {
   md = applySpeakerNamesToMd(md);
   if (!md) return '<p class="empty-state">（暂无内容）</p>';
-  return marked.parse(escapeHtml(md));
+  return sanitizeMdHtml(marked.parse(escapeHtml(md)));
 }
 function applySpkToText(s) {
   return String(s).replace(/说话人\s*(\d+)/g, (m, n) => speakerNames[n] ? speakerNames[n] : m);
@@ -331,7 +332,7 @@ function renderProcessedSegments(md, sentences) {
       block = '## ' + block;
     }
     block = applySpeakerNamesToMd(block);
-    html += `<div class="proc-seg" data-start="${start}" data-pair="${pair}">${marked.parse(escapeHtml(block))}</div>`;
+    html += `<div class="proc-seg" data-start="${start}" data-pair="${pair}">${sanitizeMdHtml(marked.parse(escapeHtml(block)))}</div>`;
   }
   return html;
 }
@@ -373,7 +374,7 @@ function renderCompare(md, sentences) {
     for (let i = 0; i < blocks.length; i++) {
       const end = i + 1 < starts.length ? starts[i + 1] : lastEnd;
       segs.push({ start: starts[i], end });
-      procHtml += `<div class="compare-proc-block" data-start="${starts[i]}" data-end="${end}">${marked.parse(escapeHtml(applySpeakerNamesToMd(blocks[i])))}</div>`;
+      procHtml += `<div class="compare-proc-block" data-start="${starts[i]}" data-end="${end}">${sanitizeMdHtml(marked.parse(escapeHtml(applySpeakerNamesToMd(blocks[i]))))}</div>`;
     }
   } else {
     procHtml = '<p class="empty-state">（暂无整理版）</p>';
@@ -680,10 +681,6 @@ document.getElementById('edit-save').addEventListener('click', async () => {
       throw new Error(err.detail || '保存失败');
     }
     allSentences[editingIdx].text = text;
-    document.querySelectorAll(`.transcript-line[data-idx="${editingIdx}"]`).forEach(line => {
-      const span = line.querySelector('.text');
-      if (span) span.textContent = text;
-    });
     let msg = '已保存';
     if (document.getElementById('edit-add-hotword').checked) {
       const d = await fetch('/api/settings/hotwords').then(r => r.json());
@@ -698,7 +695,11 @@ document.getElementById('edit-save').addEventListener('click', async () => {
     }
     editHint.style.color = 'var(--moss)';
     editHint.textContent = msg;
-    setTimeout(() => { editModal.classList.add('hidden'); doSearch(document.getElementById('search-input').value); }, 700);
+    setTimeout(() => {
+      editModal.classList.add('hidden');
+      renderAll();  // B5: 编辑单句后原文 DOM + 对照视图都要用新文本重渲
+      doSearch(document.getElementById('search-input').value);
+    }, 700);
   } catch (e) {
     editHint.style.color = 'var(--seal)';
     editHint.textContent = '保存失败: ' + e.message;
@@ -805,7 +806,12 @@ document.getElementById('search-next').addEventListener('click', nextHit);
 document.getElementById('search-prev').addEventListener('click', prevHit);
 
 // === live log viewer ===
+// B3: 用递归 setTimeout（每次 await 完再排下一次）替代 setInterval，避免单次
+// fetch>间隔时多次重叠竞态写 innerHTML；连续失败 N 次停掉并提示「连接丢失」。
+const LOG_POLL_MS = 1500;
+const LOG_MAX_FAILS = 5;
 let logTimer = null;
+let logFailCount = 0;
 const logModal = document.getElementById('log-modal');
 const logBody = document.getElementById('log-body');
 const logStepText = document.getElementById('log-step-text');
@@ -815,14 +821,39 @@ const logElapsed = document.getElementById('log-elapsed');
 const logStaleness = document.getElementById('log-staleness');
 document.getElementById('log-btn').addEventListener('click', async () => {
   logModal.classList.remove('hidden');
+  logFailCount = 0;
   await refreshLog();
-  logTimer = setInterval(refreshLog, 1500);
+  scheduleLog();
 });
 document.getElementById('log-close-btn').addEventListener('click', closeLog);
 logModal.addEventListener('click', e => { if (e.target === logModal) closeLog(); });
 function closeLog() {
   logModal.classList.add('hidden');
-  if (logTimer) { clearInterval(logTimer); logTimer = null; }
+  stopLogPoll();
+}
+function stopLogPoll() {
+  if (logTimer) { clearTimeout(logTimer); logTimer = null; }
+}
+function scheduleLog() {
+  stopLogPoll();
+  logTimer = setTimeout(async () => {
+    logTimer = null;
+    if (logModal.classList.contains('hidden')) return;
+    const action = await refreshLog();  // 'continue' | 'terminal' | 'fail'
+    if (action === 'fail') {
+      logFailCount++;
+      if (logFailCount >= LOG_MAX_FAILS) {
+        logStaleness.textContent = '⚠ 连接丢失，已停止刷新，关掉重开可重试';
+        logStaleness.style.color = '#ff8b8b';
+        return;
+      }
+    } else if (action === 'terminal') {
+      return;
+    } else {
+      logFailCount = 0;
+    }
+    scheduleLog();
+  }, LOG_POLL_MS);
 }
 function fmtElapsed(sec) {
   if (sec < 60) return sec + 's';
@@ -838,9 +869,12 @@ function fmtTotalTimings(timings) {
   const m = Math.floor(sec / 60), s = sec % 60;
   return `处理 ${m}m${s}s`;
 }
+// 返回 'continue' | 'terminal' | 'fail'，供 scheduleLog 决定是否继续。
 async function refreshLog() {
   try {
-    const d = await fetch(`/api/meetings/${meetingId}/logs`).then(r => r.json());
+    const r = await fetch(`/api/meetings/${meetingId}/logs`);
+    if (!r.ok) return 'fail';
+    const d = await r.json();
     const logs = d.logs || [];
     const pct = d.progress || 0;
     logFill.style.width = pct + '%';
@@ -879,10 +913,45 @@ async function refreshLog() {
       logStaleness.textContent = '';
       logStaleness.style.color = '';
     }
-    if (['done', 'error', 'asr_done'].includes(d.status) && logTimer) {
-      clearInterval(logTimer); logTimer = null;
-    }
-  } catch {}
+    if (['done', 'error', 'asr_done'].includes(d.status)) return 'terminal';
+    return 'continue';
+  } catch (e) {
+    return 'fail';
+  }
+}
+
+// B4: 从历史打开一个"处理中"的会议时，详情页只 load() 一次，看到的是空/半成品且
+// 没有"还会更新"的提示。这里按间隔轮询状态，到终态自动整页刷新。
+const STATUS_POLL_MS = 2500;
+let statusTimer = null;
+function isProcessingStatus(s) {
+  return ['pending','converting','asr_running','llm_polishing','llm_summarizing'].includes(s);
+}
+function pollStatusIfProcessing() {
+  if (statusTimer) clearTimeout(statusTimer);
+  if (!isProcessingStatus(currentStatus)) return;
+  statusTimer = setTimeout(async () => {
+    statusTimer = null;
+    try {
+      const r = await fetch(`/api/meetings/${meetingId}`);
+      if (!r.ok) return;
+      const data = await r.json();
+      const st = (data.meta || {}).status;
+      if (st && st !== currentStatus) {
+        currentStatus = st;
+        const metaEl = document.getElementById('m-meta');
+        if (metaEl) {
+          // 轻量更新状态徽文，避免整页闪烁；终态交给 reload 全量刷新
+          metaEl.textContent = metaEl.textContent.replace(/（[^）]*）\s*$/, '').trimEnd();
+        }
+      }
+      if (!isProcessingStatus(st)) {
+        location.reload();
+        return;
+      }
+    } catch (e) { /* 瞬态失败，下轮再试 */ }
+    pollStatusIfProcessing();
+  }, STATUS_POLL_MS);
 }
 
 async function load() {
@@ -922,6 +991,7 @@ async function load() {
     }
     if (meta.status === 'error') resumeBtn.classList.remove('hidden');
     renderAll();
+    pollStatusIfProcessing();
   } catch (e) {
     alert('加载失败: ' + e.message);
   }

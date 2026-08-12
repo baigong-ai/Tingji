@@ -47,6 +47,24 @@ def test_upload_rejects_non_audio(client):
     assert r.status_code == 415
 
 
+def test_upload_streams_to_disk_and_enforces_size_limit(client, monkeypatch, tmp_path):
+    # S3/P2: upload now streams to disk in chunks (no full-file read into memory).
+    # Sanity: a normal small upload still works.
+    files = {"audio": ("a.wav", io.BytesIO(b"\x00" * 100), "audio/wav")}
+    r = client.post("/api/upload", files=files, data={"title": "T"})
+    assert r.status_code == 200
+
+    # Force a tiny limit: exceeding it must 413 (not OOM), and leave no tmp file.
+    monkeypatch.setattr(main, "MAX_UPLOAD_BYTES", 8)
+    files = {"audio": ("b.wav", io.BytesIO(b"\x00" * 100), "audio/wav")}
+    r = client.post("/api/upload", files=files, data={"title": "T2"})
+    assert r.status_code == 413
+    uploads_dir = storage.DATA_DIR / "uploads"
+    # the aborted tmp upload must have been cleaned up
+    leftover = [p for p in uploads_dir.glob("upload_*") if p.is_file()]
+    assert leftover == []
+
+
 def test_get_meeting(client):
     files = {"audio": ("a.wav", io.BytesIO(b"x"), "audio/wav")}
     r = client.post("/api/upload", files=files, data={"title": "T"})

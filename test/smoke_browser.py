@@ -111,6 +111,26 @@ def main() -> int:
                   repr(sj))
             check("总结 md 重新生成", "决定乙" in (body["summary"] or ""))
 
+            # ===== S1: markdown link XSS sanitization =====
+            # A poisoned summary/minutes could carry [x](javascript:...); the
+            # render path (escapeHtml → marked.parse → sanitizeMdHtml) must strip
+            # the dangerous protocol while keeping a normal https link intact.
+            xss_md = ("## 概述\n\n"
+                      "[恶意](javascript:alert(document.cookie)) 和 "
+                      "[正常](https://example.com) 链接")
+            storage.save_summary(mid, xss_md)
+            storage.save_summary_json(mid, None)  # force markdown render path
+            storage.update_meta(mid, status="done", error=None)
+            page.reload()
+            page.click('.tab-btn[data-tab="summary"]')
+            page.wait_for_selector("#summary-md a", timeout=8000)
+            hrefs = page.eval_on_selector_all(
+                "#summary-md a", "els => els.map(e => e.getAttribute('href') || '')")
+            check("XSS: javascript: 链接被去除",
+                  not any(h.strip().lower().startswith(("javascript:", "vbscript:", "data:")) for h in hrefs),
+                  repr(hrefs))
+            check("XSS: 正常 https 链接保留", any(h == "https://example.com" for h in hrefs), repr(hrefs))
+
             # ===== resume button on error status =====
             storage.update_meta(mid, status="error", error="模拟失败")
             page.reload()

@@ -8,6 +8,11 @@ from app import asr, audio, llm, storage
 _tasks: dict[str, dict] = {}
 _lock = asyncio.Lock()
 
+# B8: 常驻进程里每个 register_task 都往 _tasks 塞且从不清理，跑几周/几百个会议后
+# 内存堆几百个 task dict（各带 ≤300 logs）。设上限，注册时清理最旧的终态 task。
+_MAX_TASKS = 256
+_TERMINAL_STATUSES = {"done", "error", "asr_done"}
+
 CONVERT_END = 5
 ASR_FAKE_END = 50
 ASR_REAL_END = 55
@@ -15,9 +20,45 @@ POLISH_START = 55
 POLISH_END = 85
 SUMMARY_END = 100
 
+# B10: 进度条 ETA 用的 ASR 实时率（每秒音频耗多少秒识别）。写死 0.25 是 GPU 实测值，
+# 在 CPU/Mac 上严重低估（实测 RTF≈4.7），进度条会"假完成"。按 device 给不同 RTF。
+_rtf_cache: float | None = None
+
+
+def _asr_rtf() -> float:
+    global _rtf_cache
+    if _rtf_cache is not None:
+        return _rtf_cache
+    try:
+        import torch
+        if torch.cuda.is_available():
+            rtf = 0.025
+        elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+            rtf = 0.25
+        else:
+            rtf = 4.7
+    except Exception:
+        rtf = 0.25
+    _rtf_cache = rtf
+    return rtf
+
 
 def estimate_total_seconds(duration_ms: int) -> float:
-    return duration_ms / 1000 * 0.25
+    return duration_ms / 1000 * _asr_rtf()
+
+
+def _prune_tasks() -> None:
+    """Keep _tasks bounded. Evicts oldest terminal tasks first; never drops a
+    busy (in-flight) task unless there are more than _MAX_TASKS busy at once."""
+    if len(_tasks) <= _MAX_TASKS:
+        return
+    for tid in list(_tasks.keys()):  # dict keeps insertion order
+        if len(_tasks) <= _MAX_TASKS:
+            break
+        if _tasks[tid].get("status") in _TERMINAL_STATUSES:
+            del _tasks[tid]
+    while len(_tasks) > _MAX_TASKS:  # still over: too many busy, drop oldest
+        del _tasks[next(iter(_tasks))]
 
 
 def register_task(meeting_id: str) -> dict:
@@ -34,6 +75,7 @@ def register_task(meeting_id: str) -> dict:
         "logs": [],
     }
     _tasks[task_id] = state
+    _prune_tasks()
     return state
 
 
@@ -275,12 +317,14 @@ async def finalize_live(meeting_id: str, result: dict, pcm: bytes, sample_rate: 
         raw = await loop.run_in_executor(None, asr.transcribe, wav_path, cfg.asr, _log_cb(meeting_id))
     except Exception as e:
         append_log(meeting_id, "error", f"实时离线二次识别失败：{e}")
-        # Fallback to whatever the streaming engine produced.
+        # Fallback to whatever the streaming engine produced. B12: 流式句的 spk
+        # 全是 0，取 set 会得到错误的 spk_count=1；这个 except 是"离线也失败"的
+        # 兜底，此时没有可信的说话人信息，直接置 0（详情页可后续手动重映射）。
         sentences = result.get("sentences") or []
         raw = {
             "text": "".join(s.get("text", "") for s in sentences),
             "sentences": sentences,
-            "spk_count": len({s.get("spk", 0) for s in sentences}),
+            "spk_count": 0,
         }
 
     storage.save_raw(meeting_id, raw)

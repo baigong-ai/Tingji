@@ -51,3 +51,25 @@ def test_finalize_flushes_and_punctuates_off_loop():
     assert eng._punctuate.called
     # trailing text is locked as a final sentence, not lost
     assert any(s["text"] == "剩余文本" for s in res.sentences)
+
+
+def _cfg_with_engine(engine_name):
+    cfg = mock.Mock()
+    cfg.asr = ASRConfig(cache_dir="models", hub="ms", batch_size_s=300,
+                       batch_size_threshold_s=60, hotword="",
+                       stream_engine=engine_name)
+    return cfg
+
+
+def test_make_engine_funasr():
+    eng = stream.make_engine(_cfg_with_engine("funasr"))
+    assert isinstance(eng, stream.FunASRStreamEngine)
+
+
+def test_make_engine_sidecar_falls_back_to_funasr():
+    # B11: enhanced mode is a long-term goal and disabled; even if config.yaml
+    # sets stream_engine=sidecar, make_engine must NOT use SidecarStreamEngine
+    # (keeps the disabled gate consistent with /api/realtime/info).
+    eng = stream.make_engine(_cfg_with_engine("sidecar"))
+    assert isinstance(eng, stream.FunASRStreamEngine)
+    assert not isinstance(eng, stream.SidecarStreamEngine)

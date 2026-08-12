@@ -118,6 +118,35 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 ALLOWED_AUDIO_EXTS = {"wav", "mp3", "m4a", "aac", "flac", "ogg", "opus", "webm"}
 
+# S3/P2: 上传体积上限 + 流式落盘。原来 await audio.read() 把整个文件读进内存再写盘，
+# 几小时高码率录音（数百 MB~GB）会直接 OOM。这里分块流写临时文件，并在超 2GB 时友好报错。
+MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024  # 2 GB
+_UPLOAD_CHUNK = 1024 * 1024                 # 1 MB
+
+
+class _UploadTooLarge(Exception):
+    pass
+
+
+async def _stream_upload_to_file(src: UploadFile, dst: Path) -> int:
+    """Stream an UploadFile to disk in chunks. Returns total bytes written.
+    Raises _UploadTooLarge if the running total exceeds MAX_UPLOAD_BYTES."""
+    total = 0
+    try:
+        with dst.open("wb") as f:
+            while True:
+                chunk = await src.read(_UPLOAD_CHUNK)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_UPLOAD_BYTES:
+                    raise _UploadTooLarge()
+                f.write(chunk)
+    except Exception:
+        dst.unlink(missing_ok=True)
+        raise
+    return total
+
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
@@ -149,7 +178,10 @@ async def upload(
     uploads_dir = storage.DATA_DIR / "uploads"
     uploads_dir.mkdir(parents=True, exist_ok=True)
     tmp_path = uploads_dir / f"upload_{time.time()}.{ext}"
-    tmp_path.write_bytes(await audio.read())
+    try:
+        await _stream_upload_to_file(audio, tmp_path)
+    except _UploadTooLarge:
+        raise HTTPException(413, detail=f"文件过大（超过 {MAX_UPLOAD_BYTES // (1024**3)}GB 上限），请裁剪或压缩后再上传")
     meeting_id = storage.create_meeting(title=title, audio_path=str(tmp_path), ext=ext)
     tmp_path.unlink(missing_ok=True)
     state = tasks.register_task(meeting_id)

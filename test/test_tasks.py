@@ -15,7 +15,16 @@ def reset_state():
 
 
 def test_estimate_total_seconds():
-    assert tasks.estimate_total_seconds(60 * 60 * 1000) == 900
+    # B10: RTF is device-dependent (cuda 0.025 / mps 0.25 / cpu 4.7), no longer
+    # hard-coded 0.25. The estimate must track _asr_rtf() on whichever device
+    # the test machine is.
+    rtf = tasks._asr_rtf()
+    assert tasks.estimate_total_seconds(60 * 60 * 1000) == 60 * 60 * rtf
+
+
+def test_asr_rtf_in_valid_range():
+    rtf = tasks._asr_rtf()
+    assert rtf in (0.025, 0.25, 4.7)
 
 
 def test_get_progress_unknown():
@@ -129,3 +138,52 @@ def test_record_timing_and_summary(data_dir):
     meta = storage.get_meeting(mid)["meta"]
     assert meta["timings"]["asr"] == 12.3
     assert "识别阶段完成" in storage.read_log_lines(mid)[-1]["msg"]
+
+
+# --- B8: _tasks bounded growth ----------------------------------------------
+def test_prune_tasks_evicts_oldest_terminal_first(monkeypatch):
+    monkeypatch.setattr(tasks, "_MAX_TASKS", 5)
+    tasks._tasks.clear()
+    ids = []
+    for _ in range(5):
+        st = tasks.register_task("m")
+        ids.append(st["task_id"])
+        tasks.update(st["task_id"], status="done")  # all terminal
+    # 6th registration exceeds the cap → oldest terminal task evicted
+    kept = tasks.register_task("m")
+    assert len(tasks._tasks) <= 5
+    assert ids[0] not in tasks._tasks  # oldest terminal evicted
+    assert ids[-1] in tasks._tasks     # newer terminal still around
+    assert kept["task_id"] in tasks._tasks
+
+
+def test_prune_tasks_never_evicts_busy(monkeypatch):
+    monkeypatch.setattr(tasks, "_MAX_TASKS", 3)
+    tasks._tasks.clear()
+    busy_ids = []
+    for _ in range(3):
+        st = tasks.register_task("m")
+        busy_ids.append(st["task_id"])
+        tasks.update(st["task_id"], status="asr_running")  # busy, must survive
+    # one more → cap exceeded but all are busy; we keep latest, drop oldest busy
+    tasks.register_task("m")
+    assert len(tasks._tasks) <= 3
+    # the two most recently registered must still be present
+    assert busy_ids[-1] in tasks._tasks
+
+
+# --- B12: finalize_live except branch sets spk_count=0 ----------------------
+def test_finalize_live_except_sets_spk_zero(data_dir, monkeypatch):
+    mid = _make_meeting(data_dir)
+
+    def boom(*a, **k):
+        raise RuntimeError("offline asr failed")
+
+    monkeypatch.setattr(tasks.asr, "transcribe", boom)
+    pcm = b"\x00\x00" * 16000  # 1 second of silence
+    result = {"sentences": [{"text": "a", "start": 0, "end": 1000, "spk": 0}]}
+    asyncio.run(tasks.finalize_live(mid, result, pcm, 16000, cfg=None))
+    raw = storage.get_meeting(mid)["raw"]
+    # B12: streaming sentences all have spk=0 → set() would wrongly give 1; expect 0.
+    assert raw["spk_count"] == 0
+    assert storage.get_meeting(mid)["meta"]["status"] == "asr_done"

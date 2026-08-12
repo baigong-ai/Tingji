@@ -7,6 +7,7 @@ let timerInterval = null;
 let startTime = 0;
 let currentEngine = "funasr";
 let engineReady = false;
+let stopFallbackTimer = null;  // B6: stop 后等不到 final 的兜底跳转
 
 const $ = (id) => document.getElementById(id);
 
@@ -225,13 +226,15 @@ async function start() {
   };
 
   ws.onmessage = (ev) => {
-    const d = JSON.parse(ev.data);
+    let d;
+    try { d = JSON.parse(ev.data); } catch (e) { return; }  // B6: 畸形帧忽略，不抛
     if (d.type === "sentence") {
       clearPartial();
       appendSentence(d);
     } else if (d.type === "partial") {
       updatePartial(d.text);
     } else if (d.type === "final") {
+      if (stopFallbackTimer) { clearTimeout(stopFallbackTimer); stopFallbackTimer = null; }
       setStatus("保存完成，正在跳转…");
       location.href = `/m/${d.meeting_id}`;
     } else if (d.type === "error") {
@@ -242,9 +245,18 @@ async function start() {
 
   ws.onerror = () => setStatus("连接出错");
   ws.onclose = () => {
-    if ($("live-stop").classList.contains("hidden")) return;
+    // B1: 录音中途断线（meetingId 已建 + stop 可见）→ 跳详情页，让 resume 流程
+    // 接管（后端 finalize_live 的 disconnect 分支已落盘，resume 能把 live_recording
+    // 标 error 或继续）。否则（连接在进入录音态前就失败）复位开始按钮，避免永久禁用。
+    if (meetingId && !$("live-stop").classList.contains("hidden")) {
+      setStatus("连接断开，正在跳转详情页…");
+      cleanupAudio();
+      location.href = `/m/${meetingId}`;
+      return;
+    }
     setStatus("连接已断开");
     cleanupAudio();
+    $("live-start").disabled = false;
   };
 }
 
@@ -262,6 +274,13 @@ function stop() {
   $("live-stop").disabled = true;
   setStatus("正在停止并保存…");
   cleanupAudio();
+  // B6: 若服务端不回 type:'final'（崩了/超时），8s 后跳详情页让 resume 接管，
+  // 避免用户永久卡在"正在停止并保存…"文案。
+  if (stopFallbackTimer) clearTimeout(stopFallbackTimer);
+  stopFallbackTimer = setTimeout(() => {
+    stopFallbackTimer = null;
+    if (meetingId) location.href = `/m/${meetingId}`;
+  }, 8000);
 }
 
 window.addEventListener("beforeunload", () => {

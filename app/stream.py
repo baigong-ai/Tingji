@@ -427,7 +427,11 @@ def load_hotwords() -> Optional[list[str]]:
 def make_engine(cfg: Config) -> StreamEngine:
     engine = (getattr(cfg.asr, "stream_engine", None) or "funasr").lower()
     if engine == "sidecar":
-        return SidecarStreamEngine(cfg.asr)
+        # 增强模式（GPU sidecar）是远期目标，已禁用：即使 config.yaml 手动设了
+        # stream_engine: sidecar，也回退到标准引擎，与 /api/realtime/info 报告的
+        # "enhanced 不可用"保持一致（审核 B11：原实现会让后端真用 sidecar 而前端灰着）。
+        log.warning("stream_engine=sidecar ignored (enhanced mode is a long-term goal, disabled); using funasr")
+        return FunASRStreamEngine(cfg.asr)
     return FunASRStreamEngine(cfg.asr)
 
 

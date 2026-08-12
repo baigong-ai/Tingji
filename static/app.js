@@ -70,8 +70,10 @@ function pollTask(taskId, meetingId) {
         submitBtn.disabled = false;
       }
     } catch (e) {
+      // B2: 瞬态网络失败也要复位提交按钮，否则用户只能刷新页面
       clearInterval(timer);
       showError(e.message);
+      submitBtn.disabled = false;
     }
   }, 2000);
 }
