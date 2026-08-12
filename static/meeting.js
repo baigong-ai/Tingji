@@ -86,23 +86,15 @@ async function savePrePolish(payload) {
     });
   } catch (e) { /* 静默，整理时再存一次 */ }
 }
-async function runPolish(skipConfirm = false) {
+async function runPolish() {
   const retryBtn = document.getElementById('retry-btn');
   const ctaBtn = document.querySelector('.start-polish-btn');
-  const msg = currentStatus === 'asr_done' ? '开始整理 + 总结？' : '重新调用 LLM 整理 + 总结？';
-  if (!skipConfirm && !confirm(msg)) return;
   const setBusy = (text) => {
     if (retryBtn) { retryBtn.disabled = true; retryBtn.textContent = text; }
     if (ctaBtn) { ctaBtn.disabled = true; ctaBtn.textContent = text; ctaBtn.classList.add('busy'); }
   };
   setBusy('整理中…');
   try {
-    const prePayload = {};
-    const ctxEl0 = document.querySelector('.meeting-context');
-    if (ctxEl0) prePayload.meeting_context = ctxEl0.value;
-    const selEl0 = document.querySelector('.template-select');
-    if (selEl0) prePayload.template = selEl0.value;
-    if (Object.keys(prePayload).length) await savePrePolish(prePayload);
     const r = await fetch(`/api/meetings/${meetingId}/retry-llm`, { method: 'POST' });
     if (!r.ok) throw new Error('提交失败');
     const { task_id } = await r.json();
@@ -123,9 +115,8 @@ async function runPolish(skipConfirm = false) {
   }
 }
 document.getElementById('retry-btn').addEventListener('click', () => {
-  // 有内联选择器（asr_done 首次整理）就走内联；否则（重新整理）弹模板选择框
-  if (document.querySelector('.template-select')) runPolish();
-  else openPolishSetup();
+  // 首次整理和重新整理都先弹确认框（模板 + 会议背景），用户确认后再跑
+  openPolishSetup();
 });
 
 // === 卡死任务手动恢复 ===
@@ -167,6 +158,8 @@ resumeBtn.addEventListener('click', async () => {
 });
 const polishSetupModal = document.getElementById('polish-setup-modal');
 function openPolishSetup() {
+  const title = document.getElementById('polish-setup-title');
+  if (title) title.textContent = currentStatus === 'asr_done' ? '开始整理' : '重新整理';
   const sel = document.getElementById('modal-template-select');
   if (sel) {
     sel.innerHTML = templates.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
@@ -186,7 +179,7 @@ document.getElementById('polish-setup-confirm').addEventListener('click', async 
   if (ctx) payload.meeting_context = ctx.value;
   await savePrePolish(payload);
   polishSetupModal.classList.add('hidden');
-  runPolish(true);
+  runPolish();
 });
 document.getElementById('settings-btn').addEventListener('click', () => {
   location.href = '/?settings=1';
@@ -435,19 +428,8 @@ function renderAll() {
   renderRaw(document.getElementById('transcript'), allSentences, true);
   const procEl = document.getElementById('processed-md');
   if (!currentProcessed && currentStatus === 'asr_done') {
-    procEl.innerHTML = `<div class="empty-cta"><p class="empty-state">原文已识别完成，如果检查没有问题，就可以开始整理会议纪要了</p><div class="polish-setup"><label class="template-label">总结模板 <select class="template-select" aria-label="总结模板"></select></label><details class="ctx-panel"><summary>会议背景 / 关键术语（可选，填了整理更准）</summary><textarea class="meeting-context" name="meeting-context" aria-label="会议背景与关键术语" placeholder="例如：X 项目周会；术语：K8s、灰度发布；参会：张三、李四" style="width:100%;max-width:560px;min-height:72px;box-sizing:border-box;margin-top:8px"></textarea></details></div><button class="primary start-polish-btn">开始整理</button></div>`;
-    const selEl = procEl.querySelector('.template-select');
-    if (selEl) {
-      selEl.innerHTML = templates.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
-      selEl.value = meetingTemplate || 'general';
-      selEl.addEventListener('change', () => savePrePolish({template: selEl.value}));
-    }
-    const ctxEl = procEl.querySelector('.meeting-context');
-    if (ctxEl) {
-      ctxEl.value = meetingContext;
-      ctxEl.addEventListener('blur', () => savePrePolish({meeting_context: ctxEl.value}));
-    }
-    procEl.querySelector('.start-polish-btn').addEventListener('click', runPolish);
+    procEl.innerHTML = `<div class="empty-cta"><p class="empty-state">原文已识别完成，如果检查没有问题，就可以开始整理会议纪要了</p><button class="primary start-polish-btn">开始整理</button></div>`;
+    procEl.querySelector('.start-polish-btn').addEventListener('click', openPolishSetup);
   } else {
     procEl.innerHTML = renderProcessedSegments(currentProcessed, allSentences);
   }

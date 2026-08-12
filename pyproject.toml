@@ -1,6 +1,6 @@
 [project]
 name = "tingji"
-version = "0.5.0"
+version = "0.5.1"
 description = "Local meeting transcription system with FunASR"
 requires-python = ">=3.11,<3.13"
 dependencies = [

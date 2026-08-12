@@ -264,7 +264,7 @@ Pick based on your hardware and preference — this doc doesn't pick for you, ju
 - **Local Ollama**: `Qwen3:8b` (gguf; tested on WSL + RTX 4060 Ti and Mac mini M4)
 - **API (OpenAI-compatible)**: GLM, DeepSeek
 
-Qwen3's thinking is disabled in code (`/no_think`), otherwise it's very slow.
+Thinking-model reasoning (Qwen3 family etc.) is disabled in code via the Ollama native API (`think: false`); otherwise it's very slow and can return empty content.
 
 ## Performance
 

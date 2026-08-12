@@ -128,10 +128,11 @@
 
   <div id="polish-setup-modal" class="modal hidden">
     <div class="modal-card">
-      <h3>重新整理</h3>
-      <p class="hint">先选总结模板（可改背景/术语），再开始重新整理。</p>
-      <label class="template-label">总结模板 <select id="modal-template-select" aria-label="总结模板"></select></label>
-      <details class="ctx-panel"><summary>会议背景 / 关键术语（可选）</summary><textarea id="modal-meeting-context" name="modal-meeting-context" aria-label="会议背景与关键术语" placeholder="例如：X 项目周会；术语：K8s、灰度发布" style="width:100%;min-height:72px;box-sizing:border-box;margin-top:8px"></textarea></details>
+      <h3 id="polish-setup-title">开始整理</h3>
+      <p class="hint">确认识别原文没问题后开始。会议背景/术语会帮模型改准人名和专有名词。</p>
+      <label class="template-label">整理模板 <select id="modal-template-select" aria-label="整理模板"></select></label>
+      <label class="template-label" for="modal-meeting-context" style="display:block;margin-top:12px">会议背景 / 关键术语（可选，填了整理更准）</label>
+      <textarea id="modal-meeting-context" name="modal-meeting-context" aria-label="会议背景与关键术语" placeholder="例如：X 项目周会；术语：K8s、灰度发布；参会：张三、李四" style="width:100%;min-height:88px;box-sizing:border-box;margin-top:6px"></textarea>
       <div class="modal-actions">
         <button id="polish-setup-cancel" type="button">取消</button>
         <button id="polish-setup-confirm" type="button" class="primary">开始整理</button>
@@ -146,6 +147,6 @@
   <script src="/static/access.js?v=1"></script>
   <script src="/static/marked.min.js?v=1"></script>
   <script src="/static/common.js?v=1"></script>
-  <script src="/static/meeting.js?v=22"></script>
+  <script src="/static/meeting.js?v=23"></script>
 </body>
 </html>

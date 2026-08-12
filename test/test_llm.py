@@ -18,6 +18,32 @@ def cfg_api():
     )
 
 
+@pytest.fixture
+def cfg_ollama():
+    return LLMConfig(
+        mode="ollama",
+        api=APIConfig(base_url="", api_key="", model=""),
+        ollama=OllamaConfig(base_url="http://localhost:11434/v1", model="qwen3.5:4b", api_key="ollama"),
+        polish_chunk_minutes=6,
+        temperature=0.3,
+        max_retries=2,
+    )
+
+
+def _fake_urlopen(captured, content):
+    """Mock urllib.request.urlopen：记录请求 URL+payload，返回指定 content。
+    io.BytesIO 原生支持 with，可直接冒充响应对象。"""
+    import io
+    import json as _json
+
+    def fake(req, timeout=None):
+        captured.append((req.full_url, _json.loads(req.data)))
+        body = _json.dumps({"message": {"role": "assistant", "content": content}}).encode()
+        return io.BytesIO(body)
+
+    return fake
+
+
 def test_chunk_sentences_by_minutes(cfg_api):
     sentences = [
         {"text": "a", "start": 0, "end": 1000, "spk": 0},
@@ -139,3 +165,52 @@ def test_summarize_omits_context_when_empty(cfg_api):
     with mock.patch("app.llm._chat", return_value="## 核心议题\nx") as m:
         llm.summarize("short", cfg_api)
     assert "会议背景" not in m.call_args.args[0]
+
+
+def test_chat_ollama_uses_native_api_with_think_off(cfg_ollama):
+    captured = []
+    with mock.patch("urllib.request.urlopen", _fake_urlopen(captured, "整理结果")):
+        out = llm._chat("prompt", cfg_ollama)
+    assert out == "整理结果"
+    url, req = captured[0]
+    assert url == "http://localhost:11434/api/chat"  # /v1 后缀被剥掉，走原生接口
+    assert req["think"] is False                     # 思考必须关掉
+    assert req["stream"] is False
+    assert req["model"] == "qwen3.5:4b"
+    assert req["options"]["num_ctx"] == 16384
+    assert "/no_think" not in req["messages"][0]["content"]
+    assert "format" not in req
+
+
+def test_chat_ollama_json_mode_sets_format(cfg_ollama):
+    captured = []
+    with mock.patch("urllib.request.urlopen", _fake_urlopen(captured, "{}")):
+        llm._chat("prompt", cfg_ollama, json_mode=True)
+    assert captured[0][1]["format"] == "json"
+
+
+def test_chat_empty_response_raises(cfg_ollama):
+    with mock.patch("urllib.request.urlopen", _fake_urlopen([], "")):
+        with pytest.raises(llm.EmptyLLMResponse):
+            llm._chat("prompt", cfg_ollama)
+
+
+def test_chat_retries_then_raises(cfg_ollama):
+    with mock.patch("app.llm._chat_ollama", return_value="") as m:
+        with pytest.raises(llm.EmptyLLMResponse):
+            llm._chat_retry("prompt", cfg_ollama)
+    assert m.call_count == 3  # max_retries=2 → 共 3 次尝试
+
+
+def test_chat_retry_succeeds_after_empty(cfg_ollama):
+    with mock.patch("app.llm._chat_ollama", side_effect=["", "有效内容"]):
+        assert llm._chat_retry("prompt", cfg_ollama) == "有效内容"
+
+
+def test_polish_empty_chunk_marked_failed(cfg_ollama):
+    """空响应（思考失控的典型症状）必须判定为失败：保留原文并标记，不能静默拼接空段。"""
+    sentences = [{"text": "hi", "start": 0, "end": 1000, "spk": 0}]
+    with mock.patch("app.llm._chat_ollama", return_value=""):
+        md = llm.polish(sentences, cfg_ollama)
+    assert "[整理失败]" in md
+    assert "hi" in md

@@ -2,6 +2,8 @@ import json
 import logging
 import re
 import time
+import urllib.error
+import urllib.request
 
 from openai import OpenAI
 
@@ -55,24 +57,84 @@ def _clean_response(text: str) -> str:
     return re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL).strip()
 
 
-def _chat(prompt: str, cfg: LLMConfig, json_mode: bool = False) -> str:
+class EmptyLLMResponse(RuntimeError):
+    """LLM 调用没报错但返回了空内容（典型：思考型模型 reasoning 失控，
+    content 为空）。必须当失败处理，否则空结果会被静默拼接进整理稿。"""
+
+
+def _chat_api(prompt: str, cfg: LLMConfig, json_mode: bool) -> str:
     client = _client(cfg)
     kwargs = {
         "model": _model_name(cfg),
         "messages": [{"role": "user", "content": prompt.rstrip() + "\n\n/no_think"}],
         "temperature": cfg.temperature,
     }
-    if json_mode and cfg.mode == "api":
+    if json_mode:
         kwargs["response_format"] = {"type": "json_object"}
-    if cfg.mode == "ollama":
-        # num_ctx: ollama 默认 4096，长会议整理/总结会超限报 400，放宽到 16k
-        # enable_thinking=False + /no_think: 关 Qwen3 系列的 reasoning（否则每段慢且吃内存）
-        kwargs["extra_body"] = {
-            "options": {"num_ctx": 16384},
-            "chat_template_kwargs": {"enable_thinking": False},
-        }
     resp = client.chat.completions.create(**kwargs)
     return _clean_response(resp.choices[0].message.content or "")
+
+
+def _chat_ollama(prompt: str, cfg: LLMConfig, json_mode: bool) -> str:
+    """Ollama 走原生 /api/chat 而不是 OpenAI 兼容接口：只有原生接口支持
+    think:false。思考型模型（如 qwen3.5）不关思考时 reasoning 会失控，
+    content 直接返回空；OpenAI 兼容接口不认 think/chat_template_kwargs，
+    /no_think 后缀在该模型上反而加剧失控（均已实测验证）。"""
+    base = cfg.ollama.base_url.rstrip("/")
+    if base.endswith("/v1"):
+        base = base[:-3]
+    payload = {
+        "model": cfg.ollama.model,
+        "messages": [{"role": "user", "content": prompt.rstrip()}],
+        "stream": False,
+        "think": False,
+        # num_ctx: ollama 默认 4096，长会议整理/总结会超限，放宽到 16k
+        "options": {"num_ctx": 16384, "temperature": cfg.temperature},
+    }
+    if json_mode:
+        payload["format"] = "json"
+    body = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        base + "/api/chat", data=body, headers={"Content-Type": "application/json"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=900) as resp:
+            d = json.load(resp)
+    except urllib.error.HTTPError as e:
+        # 老版本 Ollama / 不支持 thinking 的模型可能拒绝 think 字段，降级重试
+        detail = e.read().decode(errors="replace")
+        if e.code == 400 and "think" in detail.lower():
+            payload.pop("think", None)
+            req = urllib.request.Request(
+                base + "/api/chat", data=json.dumps(payload).encode(),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=900) as resp:
+                d = json.load(resp)
+        else:
+            raise RuntimeError(f"ollama /api/chat HTTP {e.code}: {detail}") from e
+    return _clean_response((d.get("message") or {}).get("content") or "")
+
+
+def _chat(prompt: str, cfg: LLMConfig, json_mode: bool = False) -> str:
+    if cfg.mode == "ollama":
+        text = _chat_ollama(prompt, cfg, json_mode)
+    else:
+        text = _chat_api(prompt, cfg, json_mode)
+    if not text:
+        raise EmptyLLMResponse(f"LLM 返回空内容（模型 {_model_name(cfg)}）")
+    return text
+
+
+def _chat_retry(prompt: str, cfg: LLMConfig, json_mode: bool = False) -> str:
+    attempts = cfg.max_retries + 1
+    for i in range(attempts):
+        try:
+            return _chat(prompt, cfg, json_mode=json_mode)
+        except Exception as e:
+            log.warning("llm chat failed (attempt %d/%d): %s", i + 1, attempts, e)
+            if i == attempts - 1:
+                raise
 
 
 def test_connection(cfg: LLMConfig) -> tuple[bool, str]:
@@ -161,24 +223,19 @@ def polish(sentences: list[dict], cfg: LLMConfig, on_log=None, on_progress=None,
         t0 = time.time()
         _log("info", f"整理第 {i+1}/{len(chunks)} 段 ...")
         prompt = ctx + POLISH_PROMPT.format(input=format_chunk(chunk))
-        success = False
-        for _ in range(cfg.max_retries + 1):
-            try:
-                outputs.append(_chat(prompt, cfg))
-                success = True
-                break
-            except Exception as e:
-                log.warning("polish chunk failed: %s", e)
-        if not success:
-            _log("warn", f"第 {i+1} 段整理失败, 保留原文")
+        try:
+            outputs.append(_chat_retry(prompt, cfg))
+        except Exception as e:
+            log.warning("polish chunk %d failed: %s", i + 1, e)
+            _log("warn", f"第 {i+1} 段整理失败（{e}）, 保留原文")
             outputs.append(format_chunk(chunk, mark_failed=True))
-        else:
-            _log("info", f"整理第 {i+1}/{len(chunks)} 段完成 ({time.time()-t0:.1f}s)")
-            if on_progress:
-                try:
-                    on_progress((i + 1) / len(chunks))
-                except Exception:
-                    pass
+            continue
+        _log("info", f"整理第 {i+1}/{len(chunks)} 段完成 ({time.time()-t0:.1f}s)")
+        if on_progress:
+            try:
+                on_progress((i + 1) / len(chunks))
+            except Exception:
+                pass
     _log("info", f"整理完成, 共 {len(chunks)} 段")
     return "\n\n---\n\n".join(outputs)
 
@@ -243,7 +300,7 @@ def summarize(processed_md: str, cfg: LLMConfig, on_log=None, meeting_context: s
     if len(processed_md) < 8000:
         t0 = time.time()
         _log("info", f"生成总结, 模型 {_model_name(cfg)}")
-        raw = _chat(ctx + SUMMARIZE_PROMPT.format(input=processed_md), cfg, json_mode=True)
+        raw = _chat_retry(ctx + SUMMARIZE_PROMPT.format(input=processed_md), cfg, json_mode=True)
         _log("info", f"总结完成 ({time.time()-t0:.1f}s)")
         return _parse_summary_json(raw) or raw
     chunks = _split_text(processed_md, 6000)
@@ -252,9 +309,9 @@ def summarize(processed_md: str, cfg: LLMConfig, on_log=None, meeting_context: s
     for i, c in enumerate(chunks):
         t0 = time.time()
         _log("info", f"总结第 {i+1}/{len(chunks)} 块 ...")
-        partials.append(_chat(ctx + SUMMARIZE_PROMPT.format(input=c), cfg, json_mode=True))
+        partials.append(_chat_retry(ctx + SUMMARIZE_PROMPT.format(input=c), cfg, json_mode=True))
         _log("info", f"总结第 {i+1}/{len(chunks)} 块完成 ({time.time()-t0:.1f}s)")
     _log("info", "合并总结 ...")
-    raw = _chat(ctx + REDUCE_PROMPT.format(input="\n\n".join(partials)), cfg, json_mode=True)
+    raw = _chat_retry(ctx + REDUCE_PROMPT.format(input="\n\n".join(partials)), cfg, json_mode=True)
     _log("info", "总结完成")
     return _parse_summary_json(raw) or raw

@@ -266,7 +266,7 @@ llm:
 - **本地 Ollama**：`Qwen3:8b`（gguf；WSL + RTX 4060 Ti、Mac mini M4 均实测可用）
 - **API（OpenAI 兼容）**：GLM、DeepSeek
 
-Qwen3 的 thinking 已经在代码里关掉（`/no_think`），不然会很慢。
+思考型模型（Qwen3 系列等）的 thinking 已在代码里通过 Ollama 原生 API 的 `think: false` 关闭，否则会慢且可能返回空内容。
 
 ## 性能参考
 
