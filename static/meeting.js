@@ -222,7 +222,29 @@ audioPlayer.addEventListener('timeupdate', () => {
   } else if (document.getElementById('tab-processed').classList.contains('active')) {
     highlightProcSegment(ms);
   }
+  maybeSkipSilence();
 });
+
+// === U8: 校对增强 — 倍速 + 跳句间静音 ===
+const rateSel = document.getElementById('playback-rate');
+const skipSilenceEl = document.getElementById('skip-silence');
+if (rateSel) rateSel.addEventListener('change', () => { audioPlayer.playbackRate = Number(rateSel.value); });
+let lastSkipTs = -1;
+function maybeSkipSilence() {
+  if (!skipSilenceEl || !skipSilenceEl.checked || !allSentences.length) return;
+  const ms = audioPlayer.currentTime * 1000;
+  const tol = 200;
+  // 已经在某句区间内（含前后容忍），不跳
+  const inside = allSentences.some(s => s.start - tol <= ms && ms <= (s.end || s.start) + 200);
+  if (inside) return;
+  // 在句间空隙：找下一句起点；空隙 >400ms 才跳，避免微跳
+  const next = allSentences.find(s => s.start > ms + 300);
+  if (!next || next.start - ms <= 400) return;
+  // 节流：同一位置附近不连续触发
+  if (lastSkipTs > 0 && Math.abs(audioPlayer.currentTime - lastSkipTs) < 0.25) return;
+  lastSkipTs = audioPlayer.currentTime;
+  audioPlayer.currentTime = next.start / 1000;
+}
 
 function highlightSentence(selector, ms) {
   const lines = document.querySelectorAll(selector);
@@ -582,10 +604,17 @@ function renderSpeakersBar(count) {
   for (let i = 0; i < count; i++) {
     const chip = document.createElement('span');
     chip.className = `spk-chip ${spkClass(i)}`;
+    chip.dataset.spk = i;
     chip.innerHTML = `${escapeHtml(spkLabel(i))} <span class="edit">改名</span>`;
-    chip.addEventListener('click', () => editSpeaker(i));
+    chip.addEventListener('click', () => {
+      if (mergeMode) { onMergeChipClick(i, chip); return; }
+      editSpeaker(i);
+    });
     bar.appendChild(chip);
   }
+  // 合并按钮：≥2 个说话人才有意义
+  const mergeBtn = document.getElementById('merge-speakers-btn');
+  if (mergeBtn) mergeBtn.classList.toggle('hidden', count < 2);
 }
 
 function renderTimeline() {
@@ -651,6 +680,52 @@ async function editSpeaker(spk) {
   doSearch(document.getElementById('search-input').value);
 }
 
+// === P0.3 说话人合并（纯 meta 重映射，不动音频） ===
+let mergeMode = false;
+let mergeSource = null;  // 要被并入的说话人 id
+const mergeHintEl = document.getElementById('merge-hint');
+const mergeCancelBtn = document.getElementById('merge-cancel-btn');
+document.getElementById('merge-speakers-btn').addEventListener('click', () => {
+  if (mergeMode) { cancelMerge(); return; }
+  mergeMode = true; mergeSource = null;
+  document.getElementById('speakers-bar').classList.add('merge-active');
+  mergeCancelBtn.classList.remove('hidden');
+  setMergeHint('点要被并入的说话人（它的所有句子会归到另一个）');
+});
+mergeCancelBtn.addEventListener('click', cancelMerge);
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && mergeMode) cancelMerge(); });
+function setMergeHint(t) {
+  mergeHintEl.textContent = t;
+  mergeHintEl.classList.toggle('hidden', !t);
+}
+function cancelMerge() {
+  mergeMode = false; mergeSource = null;
+  document.getElementById('speakers-bar').classList.remove('merge-active');
+  document.querySelectorAll('#speakers-bar .spk-chip.merge-src').forEach(c => c.classList.remove('merge-src'));
+  mergeCancelBtn.classList.add('hidden');
+  setMergeHint('');
+}
+function onMergeChipClick(i, chip) {
+  if (mergeSource === null) {
+    mergeSource = i;
+    document.querySelectorAll('#speakers-bar .spk-chip').forEach(c => c.classList.remove('merge-src'));
+    chip.classList.add('merge-src');
+    setMergeHint(`已选「${spkLabel(i)}」作为被并入方，再点要保留的说话人（可再点「${spkLabel(i)}」取消）`);
+    return;
+  }
+  if (i === mergeSource) { cancelMerge(); return; }
+  const src = mergeSource, tgt = i;
+  cancelMerge();
+  if (!confirm(`把「${spkLabel(src)}」并入「${spkLabel(tgt)}」？前者所有句子会归到后者，可在详情页继续校对。`)) return;
+  fetch(`/api/meetings/${meetingId}/speakers/remap`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ map: { [src]: tgt } })
+  }).then(r => r.json()).then(d => {
+    if (d && d.ok) { load(); }
+    else { alert('合并失败：' + (d?.detail || '未知错误')); }
+  }).catch(e => alert('合并失败：' + e.message));
+}
+
 let editingIdx = -1;
 const editModal = document.getElementById('edit-modal');
 const editText = document.getElementById('edit-text');
@@ -659,6 +734,18 @@ function editSentence(idx) {
   if (!allSentences[idx]) return;
   editingIdx = idx;
   editText.value = allSentences[idx].text;
+  // P0.3: 说话人下拉（含"新建"用于拆分）
+  const sel = document.getElementById('edit-speaker');
+  sel.innerHTML = '';
+  for (let i = 0; i < allSpkCount; i++) {
+    const o = document.createElement('option');
+    o.value = i; o.textContent = spkLabel(i);
+    sel.appendChild(o);
+  }
+  const newOpt = document.createElement('option');
+  newOpt.value = 'new'; newOpt.textContent = '➕ 新建说话人（拆分）';
+  sel.appendChild(newOpt);
+  sel.value = String(allSentences[idx].spk);
   document.getElementById('edit-add-hotword').checked = false;
   editHint.textContent = '';
   editHint.style.color = '';
@@ -671,6 +758,8 @@ document.getElementById('edit-save').addEventListener('click', async () => {
   if (editingIdx < 0) return;
   const text = editText.value.trim();
   if (!text) { editHint.textContent = '内容不能为空'; editHint.style.color = 'var(--seal)'; return; }
+  const sel = document.getElementById('edit-speaker');
+  const speakerChanged = sel && (sel.value === 'new' || Number(sel.value) !== allSentences[editingIdx].spk);
   try {
     const r = await fetch(`/api/meetings/${meetingId}/sentence`, {
       method: 'PUT', headers: {'Content-Type':'application/json'},
@@ -680,7 +769,6 @@ document.getElementById('edit-save').addEventListener('click', async () => {
       const err = await r.json().catch(() => ({}));
       throw new Error(err.detail || '保存失败');
     }
-    allSentences[editingIdx].text = text;
     let msg = '已保存';
     if (document.getElementById('edit-add-hotword').checked) {
       const d = await fetch('/api/settings/hotwords').then(r => r.json());
@@ -693,12 +781,28 @@ document.getElementById('edit-save').addEventListener('click', async () => {
         msg += '（热词已存在）';
       }
     }
+    // P0.3: 改了说话人 → 走重映射（拆分/重分配）
+    if (speakerChanged) {
+      const newSpk = sel.value === 'new' ? allSpkCount : Number(sel.value);
+      const rr = await fetch(`/api/meetings/${meetingId}/speakers/remap`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ sentences: { [editingIdx]: newSpk } })
+      });
+      const dd = await rr.json().catch(() => ({}));
+      if (!rr.ok) throw new Error(dd.detail || '说话人调整失败');
+      msg += '，已调整说话人';
+    }
     editHint.style.color = 'var(--moss)';
     editHint.textContent = msg;
     setTimeout(() => {
       editModal.classList.add('hidden');
-      renderAll();  // B5: 编辑单句后原文 DOM + 对照视图都要用新文本重渲
-      doSearch(document.getElementById('search-input').value);
+      if (speakerChanged) {
+        load();  // 说话人变了要重拉全部（spk_count/名字/对照都变）
+      } else {
+        allSentences[editingIdx].text = text;
+        renderAll();  // B5: 编辑单句后原文 DOM + 对照视图都要用新文本重渲
+        doSearch(document.getElementById('search-input').value);
+      }
     }, 700);
   } catch (e) {
     editHint.style.color = 'var(--seal)';

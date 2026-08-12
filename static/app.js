@@ -1,14 +1,13 @@
 const dropzone = document.getElementById('dropzone');
 const fileInput = document.getElementById('file-input');
-const titleInput = document.getElementById('title');
 const submitBtn = document.getElementById('submit-btn');
-const progressEl = document.getElementById('progress');
-const barFill = document.getElementById('bar-fill');
-const progressText = document.getElementById('progress-text');
 const errorEl = document.getElementById('error');
 const historyList = document.getElementById('history');
+const queueEl = document.getElementById('queue');
 
-let selectedFile = null;
+// U1: 批量上传队列。每个 item = {file, title, status, taskId, meetingId, el}
+// status: queued | uploading | processing | done | error
+let queue = [];
 
 dropzone.addEventListener('click', () => fileInput.click());
 dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
@@ -16,30 +15,116 @@ dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover
 dropzone.addEventListener('drop', e => {
   e.preventDefault();
   dropzone.classList.remove('dragover');
-  if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
+  if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
 });
-fileInput.addEventListener('change', () => { if (fileInput.files.length) setFile(fileInput.files[0]); });
+fileInput.addEventListener('change', () => { if (fileInput.files.length) addFiles(fileInput.files); fileInput.value = ''; });
 
-function setFile(f) {
-  selectedFile = f;
-  dropzone.querySelector('p').textContent = `${f.name} (${(f.size/1024/1024).toFixed(1)} MB)`;
-  submitBtn.disabled = !titleInput.value.trim();
+function defaultTitle(name) {
+  return (name.replace(/\.[^.]+$/, '').slice(0, 60) || name).trim() || name;
 }
 
-titleInput.addEventListener('input', () => {
-  submitBtn.disabled = !(selectedFile && titleInput.value.trim());
-});
-
-submitBtn.addEventListener('click', startUpload);
-
-async function startUpload() {
+function addFiles(fileList) {
+  let added = 0;
+  for (const f of fileList) {
+    // dedupe by name+size
+    if (queue.some(q => q.file.name === f.name && q.file.size === f.size)) continue;
+    queue.push({ file: f, title: defaultTitle(f.name), status: 'queued', taskId: null, meetingId: null, el: null });
+    added++;
+  }
   errorEl.classList.add('hidden');
-  submitBtn.disabled = true;
-  progressEl.classList.remove('hidden');
-  setProgress(0, '上传中...');
+  renderQueue();
+  updateSubmit();
+}
+
+function renderQueue() {
+  queueEl.innerHTML = '';
+  queue.forEach((item, i) => queueEl.appendChild(buildQueueRow(item, i)));
+  queueEl.classList.toggle('hidden', queue.length === 0);
+}
+
+function buildQueueRow(item, i) {
+  const li = document.createElement('li');
+  li.className = `queue-item q-${item.status}`;
+  const locked = item.status !== 'queued' && item.status !== 'error';
+  const sizeMb = (item.file.size / 1024 / 1024).toFixed(1);
+  li.innerHTML = `
+    <div class="q-main">
+      <span class="q-name" title="${escapeHtml(item.file.name)}">${escapeHtml(item.file.name)} <span class="q-size">${sizeMb} MB</span></span>
+      <input class="q-title" type="text" maxlength="120" value="${escapeHtml(item.title)}" ${locked ? 'disabled' : ''} aria-label="会议标题">
+    </div>
+    <div class="q-side">
+      <span class="q-status"></span>
+      <a class="q-open mini hidden" href="#">打开</a>
+      ${item.status === 'queued' ? '<button class="mini q-remove" type="button">移除</button>' : ''}
+      ${item.status === 'error' ? '<button class="mini q-retry" type="button">重试</button>' : ''}
+    </div>`;
+  const titleInput = li.querySelector('.q-title');
+  titleInput.addEventListener('input', () => { item.title = titleInput.value; });
+  const removeBtn = li.querySelector('.q-remove');
+  if (removeBtn) removeBtn.addEventListener('click', () => {
+    queue = queue.filter(q => q !== item);
+    renderQueue();
+    updateSubmit();
+  });
+  const retryBtn = li.querySelector('.q-retry');
+  if (retryBtn) retryBtn.addEventListener('click', () => {
+    item.status = 'queued';
+    renderQueue();
+    updateSubmit();
+  });
+  item.el = li;
+  setRowStatus(item);
+  return li;
+}
+
+function setRowStatus(item) {
+  if (!item.el) return;
+  const s = item.el.querySelector('.q-status');
+  const open = item.el.querySelector('.q-open');
+  const map = {
+    queued: () => { s.textContent = '待开始'; s.className = 'q-status q-tag'; },
+    uploading: () => { s.textContent = '上传中…'; s.className = 'q-status q-tag q-tag-busy'; },
+    processing: (pct, step) => { s.textContent = (step || '处理中') + (pct != null ? ` ${pct}%` : ''); s.className = 'q-status q-tag q-tag-busy'; },
+    done: () => { s.textContent = '完成，可校对'; s.className = 'q-status q-tag q-tag-ok'; },
+    error: (msg) => { s.textContent = '失败：' + (msg || ''); s.className = 'q-status q-tag q-tag-err'; },
+  };
+  (map[item.status] || map.queued)(item._pct, item._step, item._msg);
+  if (item.meetingId && (item.status === 'done' || item.status === 'processing')) {
+    open.href = `/m/${item.meetingId}`;
+    open.classList.remove('hidden');
+  } else {
+    open.classList.add('hidden');
+  }
+  item.el.className = `queue-item q-${item.status}`;
+}
+
+function updateSubmit() {
+  const anyQueued = queue.some(q => q.status === 'queued');
+  submitBtn.disabled = !anyQueued;
+  submitBtn.textContent = anyQueued ? '开始转录' : (queue.length ? '处理中…' : '开始转录');
+}
+
+submitBtn.addEventListener('click', startUploadAll);
+
+async function startUploadAll() {
+  errorEl.classList.add('hidden');
+  const items = queue.filter(q => q.status === 'queued');
+  // 并发上传：上传本身（流式落盘）很快；后台 pipeline 由后端按 P1 解锁的语义交错
+  // 执行（convert 可与上一条 ASR 并行，ASR 单模型排队）。
+  for (const item of items) {
+    item.status = 'uploading'; setRowStatus(item);
+    item.el.querySelector('.q-title').disabled = true;
+    const removeBtn = item.el.querySelector('.q-remove');
+    if (removeBtn) removeBtn.remove();
+  }
+  updateSubmit();
+  await Promise.all(items.map(uploadOne));
+}
+
+async function uploadOne(item) {
   const fd = new FormData();
-  fd.append('audio', selectedFile);
-  fd.append('title', titleInput.value.trim());
+  fd.append('audio', item.file);
+  fd.append('title', (item.title || defaultTitle(item.file.name)).trim() || item.file.name);
   try {
     const r = await fetch('/api/upload', { method: 'POST', body: fd });
     if (!r.ok) {
@@ -47,40 +132,47 @@ async function startUpload() {
       throw new Error(err.detail || '上传失败');
     }
     const { task_id, meeting_id } = await r.json();
-    pollTask(task_id, meeting_id);
+    item.taskId = task_id;
+    item.meetingId = meeting_id;
+    item.status = 'processing';
+    setRowStatus(item);
+    pollTask(item);
   } catch (e) {
-    showError(e.message);
-    progressEl.classList.add('hidden');
-    submitBtn.disabled = false;
+    item.status = 'error'; item._msg = e.message;
+    setRowStatus(item);
+    item.el.querySelector('.q-title').disabled = false;
+    showError(`${item.file.name}：${e.message}`);
   }
 }
 
-function pollTask(taskId, meetingId) {
+function pollTask(item) {
   const timer = setInterval(async () => {
     try {
-      const r = await fetch(`/api/tasks/${taskId}`);
+      const r = await fetch(`/api/tasks/${item.taskId}`);
+      if (!r.ok) throw new Error('任务查询失败');
       const s = await r.json();
-      setProgress(s.progress, s.step);
+      item._pct = s.progress; item._step = s.step || statusLabel(s.status);
       if (s.status === 'done' || s.status === 'asr_done') {
         clearInterval(timer);
-        location.href = `/m/${meetingId}`;
+        item.status = 'done'; item._pct = 100;
+        setRowStatus(item);
+        loadHistory();  // 完成后刷新首页历史列表
       } else if (s.status === 'error') {
         clearInterval(timer);
-        showError(s.error || '处理失败');
-        submitBtn.disabled = false;
+        item.status = 'error'; item._msg = s.error || '处理失败';
+        setRowStatus(item);
+        item.el.querySelector('.q-title').disabled = false;
+      } else {
+        setRowStatus(item);
       }
     } catch (e) {
-      // B2: 瞬态网络失败也要复位提交按钮，否则用户只能刷新页面
+      // B2: 网络瞬断不致命——保留行，标错并允许重试
       clearInterval(timer);
-      showError(e.message);
-      submitBtn.disabled = false;
+      item.status = 'error'; item._msg = '网络中断，可重试';
+      setRowStatus(item);
+      item.el.querySelector('.q-title').disabled = false;
     }
   }, 2000);
-}
-
-function setProgress(pct, step) {
-  barFill.style.width = `${pct}%`;
-  progressText.textContent = `${pct}% · ${step || ''}`;
 }
 
 function showError(msg) {

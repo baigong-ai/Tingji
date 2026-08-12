@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title id="m-page-title">会议 · 听记</title>
-  <link rel="stylesheet" href="/static/style.css?v=14">
-  <link rel="stylesheet" href="/static/meeting.css?v=16">
+  <link rel="stylesheet" href="/static/style.css?v=15">
+  <link rel="stylesheet" href="/static/meeting.css?v=17">
 </head>
 <body>
   <header>
@@ -30,6 +30,9 @@
         <div class="export-row">
           <select id="export-format" aria-label="导出格式">
             <option value="md">整理版 .md</option>
+            <option value="docx">整理版 .docx</option>
+            <option value="minutes">纪要 .md</option>
+            <option value="minutes_docx">纪要 .docx</option>
             <option value="txt">原文 .txt</option>
             <option value="srt">字幕 .srt</option>
           </select>
@@ -39,6 +42,11 @@
         </div>
       </div>
       <div id="speakers-bar" class="speakers-bar"></div>
+      <div class="speaker-tools">
+        <button id="merge-speakers-btn" class="mini hidden" type="button">合并说话人</button>
+        <button id="merge-cancel-btn" class="mini hidden" type="button">取消合并</button>
+        <span id="merge-hint" class="merge-hint hidden"></span>
+      </div>
       <div id="speaker-timeline" class="speaker-timeline" aria-label="发言人发言时长分布，点击定位"></div>
     </div>
 
@@ -95,6 +103,10 @@
       <p class="hint">双击句子打开此框。保存后原文/导出/对照都会用新文本。</p>
       <textarea id="edit-text" rows="4"></textarea>
       <label class="hotword-add">
+        说话人 <select id="edit-speaker" aria-label="这句话的说话人"></select>
+        <span class="hint">（cam++ 把多人并一人 / 一人拆两人时，可在这里改归属；改「新建」会拆出一个新说话人）</span>
+      </label>
+      <label class="hotword-add">
         <input id="edit-add-hotword" type="checkbox"> 把这句加入热词（提升后续识别，建议挑关键短语）
       </label>
       <div id="edit-hint" class="settings-result"></div>
@@ -142,11 +154,25 @@
 
   <div class="audio-bar">
     <audio id="audio-player" controls preload="metadata"></audio>
+    <div class="play-opts">
+      <label>倍速
+        <select id="playback-rate" aria-label="播放倍速">
+          <option value="0.75">0.75×</option>
+          <option value="1" selected>1×</option>
+          <option value="1.25">1.25×</option>
+          <option value="1.5">1.5×</option>
+          <option value="2">2×</option>
+        </select>
+      </label>
+      <label class="skip-silence-label" title="自动跳过句间静音段">
+        <input type="checkbox" id="skip-silence"> 跳静音
+      </label>
+    </div>
   </div>
 
   <script src="/static/access.js?v=1"></script>
   <script src="/static/marked.min.js?v=1"></script>
   <script src="/static/common.js?v=2"></script>
-  <script src="/static/meeting.js?v=24"></script>
+  <script src="/static/meeting.js?v=25"></script>
 </body>
 </html>

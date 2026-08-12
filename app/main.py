@@ -19,7 +19,7 @@ from fastapi import (
     BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile,
     WebSocket, WebSocketDisconnect,
 )
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app import asr, audio, llm, storage, stream, tasks
@@ -117,6 +117,10 @@ app = FastAPI(title="FunASR Meeting Transcription", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 ALLOWED_AUDIO_EXTS = {"wav", "mp3", "m4a", "aac", "flac", "ogg", "opus", "webm"}
+
+# docx export media type (P1.1: 整理版 / 纪要 → .docx)
+_DOCX_MEDIA = ("application/vnd.openxmlformats-officedocument."
+               "wordprocessingml.document")
 
 # S3/P2: 上传体积上限 + 流式落盘。原来 await audio.read() 把整个文件读进内存再写盘，
 # 几小时高码率录音（数百 MB~GB）会直接 OOM。这里分块流写临时文件，并在超 2GB 时友好报错。
@@ -696,35 +700,65 @@ async def meeting_logs(meeting_id: str):
 
 
 @app.get("/api/meetings/{meeting_id}/export")
-async def export(meeting_id: str, format: str = "md"):
+async def export(
+    meeting_id: str,
+    format: str = "md",
+    speakers: bool = True,
+    timestamps: bool = True,
+):
+    """Export a meeting. Formats: md/txt/srt (原文系) + docx (整理版) +
+    minutes / minutes_docx (纪要). txt/srt 支持 speakers=/timestamps= 关闭说话人/时间戳。"""
     data = storage.get_meeting(meeting_id)
     if data is None:
         raise HTTPException(404)
     mdir = storage.meeting_dir(meeting_id)
+    names = (data.get("meta") or {}).get("speaker_names") or {}
+    title = (data.get("meta") or {}).get("title") or "会议"
+
     if format == "md":
-        names = (data.get("meta") or {}).get("speaker_names") or {}
         processed_path = mdir / "processed.md"
         if not processed_path.exists():
             raise HTTPException(400, "会议尚未整理，无 md 可导出（请先用 txt/srt 或完成整理）")
-        text = processed_path.read_text(encoding="utf-8")
-        if names:
-            text = re.sub(r"说话人\s*(\d+)", lambda m: _spk_label(int(m.group(1)), names), text)
+        text = _apply_speaker_names_to_md(processed_path.read_text(encoding="utf-8"), names)
         path = mdir / "export.md"
         path.write_text(text, encoding="utf-8")
-        media_type = "text/markdown"
-    elif format == "txt":
-        text = _to_plain_text(data["raw"], (data.get("meta") or {}).get("speaker_names") or {})
+        return FileResponse(path, media_type="text/markdown", filename=path.name)
+
+    if format == "txt":
+        text = _to_plain_text(data["raw"], names, include_speakers=speakers,
+                              include_timestamps=timestamps)
         path = mdir / "export.txt"
         path.write_text(text, encoding="utf-8")
-        media_type = "text/plain"
-    elif format == "srt":
-        text = _to_srt(data["raw"], (data.get("meta") or {}).get("speaker_names") or {})
+        return FileResponse(path, media_type="text/plain", filename=path.name)
+
+    if format == "srt":
+        text = _to_srt(data["raw"], names, include_speakers=speakers)
         path = mdir / "export.srt"
         path.write_text(text, encoding="utf-8")
-        media_type = "application/x-subrip"
-    else:
-        raise HTTPException(400, "format must be md/txt/srt")
-    return FileResponse(path, media_type=media_type, filename=path.name)
+        return FileResponse(path, media_type="application/x-subrip", filename=path.name)
+
+    if format == "docx":
+        processed_path = mdir / "processed.md"
+        if not processed_path.exists():
+            raise HTTPException(400, "会议尚未整理，无 docx 可导出（请先完成整理）")
+        md_text = _apply_speaker_names_to_md(processed_path.read_text(encoding="utf-8"), names)
+        blob = _md_to_docx_bytes(md_text, title)
+        return Response(blob, media_type=_DOCX_MEDIA,
+                        headers={"Content-Disposition": f'attachment; filename="export.docx"'})
+
+    if format in ("minutes", "minutes_docx"):
+        md_text = _minutes_md(data, names)
+        if not md_text.strip("#").strip():
+            raise HTTPException(400, "会议尚无纪要，请先「开始整理」生成总结")
+        if format == "minutes":
+            path = mdir / "export-minutes.md"
+            path.write_text(md_text, encoding="utf-8")
+            return FileResponse(path, media_type="text/markdown", filename=path.name)
+        blob = _md_to_docx_bytes(md_text, f"{title} · 纪要")
+        return Response(blob, media_type=_DOCX_MEDIA,
+                        headers={"Content-Disposition": f'attachment; filename="export-minutes.docx"'})
+
+    raise HTTPException(400, "format must be md/txt/srt/docx/minutes/minutes_docx")
 
 
 @app.post("/api/meetings/{meeting_id}/retry-llm")
@@ -801,6 +835,81 @@ async def rename_speakers(meeting_id: str, payload: dict):
         raise HTTPException(400, "说话人名格式错误")
     storage.update_meta(meeting_id, speaker_names=names)
     return {"ok": True, "speaker_names": names}
+
+
+@app.post("/api/meetings/{meeting_id}/speakers/remap")
+async def remap_speakers(meeting_id: str, payload: dict):
+    """P0.3 说话人合并/拆分（纯 meta 重映射，不动音频、不重跑 ASR）。
+    payload:
+      map: {old_spk_str: new_spk_str}      — 把某说话人 id 整体合并到另一个（合并）
+      sentences: {idx_str: spk_str}        — 改单句的说话人（拆分/重分配）
+    两者可同时给。应用后把 spk id 重排成连续 0..k-1，并同步 speaker_names、
+    processed.md 里的「说话人 N」引用与 meta.spk_count。"""
+    data = storage.get_meeting(meeting_id)
+    if data is None:
+        raise HTTPException(404)
+    raw = data.get("raw")
+    if not raw or not raw.get("sentences"):
+        raise HTTPException(400, "尚无识别结果，无法调整说话人")
+    sentences = raw["sentences"]
+    spk_map = payload.get("map") or {}
+    sent_overrides = payload.get("sentences") or {}
+    if not isinstance(spk_map, dict) or not isinstance(sent_overrides, dict):
+        raise HTTPException(400, "map / sentences 需为对象")
+
+    def _to_int(v):
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "说话人编号需为整数")
+
+    # 1. 单句覆盖（拆分 / 重分配）
+    orig_distinct = sorted({s["spk"] for s in sentences})
+    for k, v in sent_overrides.items():
+        idx = _to_int(k)
+        if idx < 0 or idx >= len(sentences):
+            raise HTTPException(400, "句子序号超出范围")
+        sentences[idx]["spk"] = max(_to_int(v), 0)
+    # 2. id 级整体重映射（合并）
+    mp = {_to_int(a): _to_int(b) for a, b in spk_map.items()} if spk_map else {}
+    if mp:
+        for s in sentences:
+            if s["spk"] in mp:
+                s["spk"] = mp[s["spk"]]
+    # 3. 重排成连续 0..k-1（保证前端 speakers bar 的 0..count-1 假设成立）
+    distinct = sorted({s["spk"] for s in sentences})
+    norm = {old: i for i, old in enumerate(distinct)}
+    for s in sentences:
+        s["spk"] = norm[s["spk"]]
+    # original id → 最终归一化 id（经合并链 + 重排），用于 processed.md 引用更新
+    def _final_id(o):
+        cur, seen = o, set()
+        while cur in mp and cur not in seen:
+            seen.add(cur)
+            cur = mp[cur]
+        return norm.get(cur, cur)
+    full_map = {o: _final_id(o) for o in orig_distinct}
+    # 4. speaker_names 跟着重排
+    old_names = (data.get("meta") or {}).get("speaker_names") or {}
+    new_names = {}
+    for old in orig_distinct:
+        nm = old_names.get(str(old)) or old_names.get(old)
+        new = full_map[old]
+        if nm and str(new) not in new_names:
+            new_names[str(new)] = nm
+    # 5. processed.md 里的「说话人 N」引用一并更新（用 original→final 全量映射）
+    processed = data.get("processed") or ""
+    if processed:
+        processed = re.sub(
+            r"说话人\s*(\d+)",
+            lambda m: "说话人 " + str(full_map.get(int(m.group(1)), int(m.group(1)))),
+            processed,
+        )
+    storage.save_raw(meeting_id, raw)
+    if processed:
+        storage.save_processed(meeting_id, processed)
+    storage.update_meta(meeting_id, spk_count=len(distinct), speaker_names=new_names)
+    return {"ok": True, "spk_count": len(distinct), "speaker_names": new_names}
 
 
 @app.put("/api/meetings/{meeting_id}/title")
@@ -1024,17 +1133,25 @@ def _spk_label(spk, names: dict) -> str:
     return names.get(str(spk)) or names.get(spk) or f"说话人{spk}"
 
 
-def _to_plain_text(raw: dict, names: dict | None = None) -> str:
+def _to_plain_text(raw: dict, names: dict | None = None,
+                   include_speakers: bool = True, include_timestamps: bool = True) -> str:
     names = names or {}
     if not raw:
         return ""
     lines = []
     for s in raw.get("sentences", []):
-        lines.append(f"[{_fmt_ts(s['start'])}] {_spk_label(s['spk'], names)}  {s['text']}")
+        parts = []
+        if include_timestamps:
+            parts.append(f"[{_fmt_ts(s['start'])}]")
+        if include_speakers:
+            parts.append(_spk_label(s['spk'], names))
+        parts.append(s['text'])
+        lines.append("  ".join(p for p in parts if p))
     return "\n".join(lines)
 
 
-def _to_srt(raw: dict, names: dict | None = None) -> str:
+def _to_srt(raw: dict, names: dict | None = None,
+            include_speakers: bool = True) -> str:
     names = names or {}
     if not raw:
         return ""
@@ -1042,7 +1159,10 @@ def _to_srt(raw: dict, names: dict | None = None) -> str:
     for i, s in enumerate(raw.get("sentences", []), 1):
         lines.append(str(i))
         lines.append(f"{_srt_ts(s['start'])} --> {_srt_ts(s['end'])}")
-        lines.append(f"[{_spk_label(s['spk'], names)}] {s['text']}")
+        body = s['text']
+        if include_speakers:
+            body = f"[{_spk_label(s['spk'], names)}] {body}"
+        lines.append(body)
         lines.append("")
     return "\n".join(lines)
 
@@ -1052,6 +1172,54 @@ def _srt_ts(ms: int) -> str:
     m, rem = divmod(rem, 60_000)
     s, ms = divmod(rem, 1000)
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def _apply_speaker_names_to_md(md: str, names: dict) -> str:
+    if not md or not names:
+        return md
+    return re.sub(r"说话人\s*(\d+)", lambda m: _spk_label(int(m.group(1)), names), md)
+
+
+def _minutes_md(data: dict, names: dict) -> str:
+    """Export the structured minutes (纪要) as standalone markdown. Prefers the
+    structured summary_json (概述/决议/待办/待讨论); falls back to summary.md."""
+    sj = data.get("summary_json")
+    if sj:
+        md = llm.summary_to_md(sj)
+    else:
+        md = data.get("summary") or ""
+    md = _apply_speaker_names_to_md(md, names)
+    title = (data.get("meta") or {}).get("title") or "会议纪要"
+    return f"# {title}\n\n{md}".rstrip() + "\n"
+
+
+def _md_to_docx_bytes(md_text: str, title: str) -> bytes:
+    """Render a (simple, our-own-flavour) markdown string into a .docx.
+    Handles # / ## headings, paragraphs, '- ' / '- [ ] ' bullets, and ignores
+    '---' chunk separators. python-docx is a required dependency."""
+    import io
+    from docx import Document
+    doc = Document()
+    doc.add_heading(title, level=0)
+    for raw in md_text.split("\n"):
+        line = raw.rstrip()
+        if not line.strip() or line.strip() == "---":
+            continue
+        if line.startswith("### "):
+            doc.add_heading(line[4:].strip(), level=3)
+        elif line.startswith("## "):
+            doc.add_heading(line[3:].strip(), level=2)
+        elif line.startswith("# "):
+            doc.add_heading(line[2:].strip(), level=1)
+        elif line.startswith("- [ ] "):
+            doc.add_paragraph(line[6:].strip(), style="List Bullet")
+        elif line.startswith("- "):
+            doc.add_paragraph(line[2:].strip(), style="List Bullet")
+        else:
+            doc.add_paragraph(line.strip())
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
 
 
 # ---------------------------------------------------------------------------

@@ -9,7 +9,8 @@ from app import storage, tasks
 @pytest.fixture(autouse=True)
 def reset_state():
     tasks._tasks.clear()
-    tasks._lock = asyncio.Lock()
+    tasks._asr_lock = asyncio.Lock()
+    tasks._CONVERT_SEM = asyncio.Semaphore(3)
     yield
     tasks._tasks.clear()
 
@@ -120,6 +121,75 @@ def test_run_pipeline_falls_back_to_latest_task(data_dir, monkeypatch):
     asyncio.run(tasks.run_pipeline(mid, cfg=None))
     assert tasks.get_progress(new["task_id"])["status"] == "asr_done"
     assert tasks.get_progress(old["task_id"])["status"] == "error"
+
+
+def test_pipeline_does_not_serialize_convert_with_asr(data_dir, monkeypatch):
+    """P1: _asr_lock is scoped to ASR only. Meeting B's convert must run while
+    meeting A's ASR still holds the lock (no whole-pipeline serialization)."""
+    # distinct titles → distinct meeting ids (same-second + same slug would collide)
+    src = data_dir.parent / "a.wav"; src.write_bytes(b"x")
+    mid_a = storage.create_meeting("alpha", str(src), "wav")
+    mid_b = storage.create_meeting("beta", str(src), "wav")
+    assert mid_a != mid_b
+    tasks._asr_lock = asyncio.Lock()
+    log = []
+    asr_holding = asyncio.Event()
+
+    async def convert(task_id, meeting_id, cfg):
+        if meeting_id == mid_b:
+            log.append(("convert_b_while_asr_held", asr_holding.is_set()))
+
+    async def asr(task_id, meeting_id, cfg):
+        async with tasks._asr_lock:
+            asr_holding.set()
+            await asyncio.sleep(0.05)
+            asr_holding.clear()
+
+    monkeypatch.setattr(tasks, "_convert_audio", convert)
+    monkeypatch.setattr(tasks, "_run_asr", asr)
+
+    async def go():
+        a = asyncio.create_task(tasks.run_pipeline(mid_a, cfg=None))
+        await asyncio.sleep(0.02)  # let A reach & acquire the ASR lock
+        b = asyncio.create_task(tasks.run_pipeline(mid_b, cfg=None))
+        await asyncio.gather(a, b)
+
+    asyncio.run(go())
+    assert ("convert_b_while_asr_held", True) in log  # B's convert overlapped A's ASR
+    assert storage.get_meeting(mid_a)["meta"]["status"] == "asr_done"
+    assert storage.get_meeting(mid_b)["meta"]["status"] == "asr_done"
+
+
+def test_retry_llm_runs_concurrently_without_asr_lock(data_dir, monkeypatch):
+    """P1: retry_llm (polish+summarize) takes no lock — two meetings can polish
+    at once (LLM is external, no model contention)."""
+    src = data_dir.parent / "a.wav"; src.write_bytes(b"x")
+    mid_a = storage.create_meeting("alpha", str(src), "wav")
+    mid_b = storage.create_meeting("beta", str(src), "wav")
+    assert mid_a != mid_b
+    holding = asyncio.Event()
+    overlapped = {"value": False}
+
+    async def polish(task_id, meeting_id, cfg):
+        if meeting_id == mid_a:
+            holding.set()
+            await asyncio.sleep(0.05)
+            holding.clear()
+        else:
+            overlapped["value"] = holding.is_set()
+
+    monkeypatch.setattr(tasks, "_run_polish", polish)
+    monkeypatch.setattr(tasks, "_run_summarize", mock.AsyncMock())
+
+    async def go():
+        a = asyncio.create_task(tasks.retry_llm(mid_a, cfg=None))
+        await asyncio.sleep(0.02)
+        b = asyncio.create_task(tasks.retry_llm(mid_b, cfg=None))
+        await asyncio.gather(a, b)
+
+    asyncio.run(go())
+    # retry_llm must NOT serialize, so B's polish overlaps A's
+    assert overlapped["value"] is True
 
 
 def test_get_logs_reads_disk_when_not_in_memory(data_dir):

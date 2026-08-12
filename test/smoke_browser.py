@@ -62,12 +62,13 @@ def main() -> int:
     src.write_bytes(b"x")
     mid = storage.create_meeting("浏览器冒烟", str(src), "wav")
     storage.save_raw(mid, {"text": "你好", "sentences": [
-        {"start": 0, "end": 1000, "spk": 0, "text": "你好"}], "spk_count": 1})
+        {"start": 0, "end": 1000, "spk": 0, "text": "你好"},
+        {"start": 1100, "end": 2000, "spk": 1, "text": "世界"}], "spk_count": 2})
     storage.save_processed(mid, "# 原始整理版\n\n内容")
     storage.save_summary_json(mid, {"summary": "原始概述", "decisions": ["决定甲"],
                                     "action_items": ["待办甲"], "open_questions": []})
     storage.save_summary(mid, "## 概述\n\n原始概述")
-    storage.update_meta(mid, status="done", audio_wav="audio.wav")
+    storage.update_meta(mid, status="done", audio_wav="audio.wav", spk_count=2)
     qmid = urllib.parse.quote(mid)  # meeting ids contain CJK — encode for urllib
 
     srv = subprocess.Popen(
@@ -130,6 +131,25 @@ def main() -> int:
                   not any(h.strip().lower().startswith(("javascript:", "vbscript:", "data:")) for h in hrefs),
                   repr(hrefs))
             check("XSS: 正常 https 链接保留", any(h == "https://example.com" for h in hrefs), repr(hrefs))
+
+            # ===== P0.3: speaker merge (pure meta remap) + P1.1 export options =====
+            storage.update_meta(mid, status="done", error=None)
+            page.reload()
+            page.wait_for_selector("#speakers-bar .spk-chip", timeout=8000)
+            # export dropdown exposes the new docx / minutes options
+            fmts = page.eval_on_selector_all(
+                "#export-format option", "els => els.map(e => e.value)")
+            check("导出下拉含 docx/minutes", "docx" in fmts and "minutes" in fmts, repr(fmts))
+            # merge speaker 0 -> 1 (the bar has 2 chips; merge reduces to 1)
+            page.click("#merge-speakers-btn")
+            page.click('#speakers-bar .spk-chip[data-spk="0"]')  # source (被并入)
+            page.once("dialog", lambda d: d.accept())             # confirm()
+            page.click('#speakers-bar .spk-chip[data-spk="1"]')   # target (保留)
+            page.wait_for_function(
+                "() => document.querySelectorAll('#speakers-bar .spk-chip').length === 1",
+                timeout=8000)
+            sj = json.loads(urllib.request.urlopen(f"{BASE}/api/meetings/{qmid}").read())
+            check("说话人合并后 spk_count=1", sj["meta"]["spk_count"] == 1, str(sj["meta"]["spk_count"]))
 
             # ===== resume button on error status =====
             storage.update_meta(mid, status="error", error="模拟失败")

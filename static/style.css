@@ -415,6 +415,25 @@ input[type=text]:focus, input[type=password]:focus, textarea:focus, select:focus
   background: var(--paper);
 }
 
+/* === U1 批量上传队列 === */
+.queue-list { list-style: none; padding: 0; margin: 16px 0 0; display: flex; flex-direction: column; gap: 8px; }
+.queue-item {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 10px 12px; border: 1px solid var(--paper-edge); border-radius: var(--r-sm);
+  background: var(--paper-deep);
+}
+.queue-item.q-done { border-color: var(--moss, #4a6741); }
+.queue-item.q-error { border-color: var(--seal, #b91c1c); }
+.q-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.q-name { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q-size { font-size: 11px; color: var(--ink-faint); font-weight: 400; }
+.q-title { font-size: 13px !important; padding: 4px 8px !important; }
+.q-side { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.q-tag { font-size: 12px; white-space: nowrap; }
+.q-tag-busy { color: var(--ink-faint); }
+.q-tag-ok { color: var(--moss, #4a6741); }
+.q-tag-err { color: var(--seal, #b91c1c); }
+
 /* === 按钮 === */
 button {
   font-family: var(--font-serif);

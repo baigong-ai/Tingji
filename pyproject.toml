@@ -1,6 +1,6 @@
 [project]
 name = "tingji"
-version = "0.5.1"
+version = "0.6.0"
 description = "Local meeting transcription system with FunASR"
 requires-python = ">=3.11,<3.13"
 dependencies = [
@@ -13,6 +13,7 @@ dependencies = [
     "openai>=1.30",
     "pyyaml>=6.0",
     "numpy>=1.26",
+    "python-docx>=1.1",
 ]
 
 [project.optional-dependencies]

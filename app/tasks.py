@@ -6,7 +6,12 @@ from typing import Optional
 from app import asr, audio, llm, storage
 
 _tasks: dict[str, dict] = {}
-_lock = asyncio.Lock()
+# P1: 这把锁只护 ASR 模型单例（asr.transcribe 不能并发，会破坏模型内部 cache/state）。
+# convert(ffmpeg)/polish/summarize(LLM) 都不需要它——放开后多文件批处理时，文件 N
+# 的 convert 可与文件 N-1 的 ASR 并行，吞吐显著提升。锁只在 _run_asr 内部获取。
+_asr_lock = asyncio.Lock()
+# 并发 ffmpeg 上限：批处理一次传几十个文件时，避免同时 spawn 几十个 ffmpeg 进程。
+_CONVERT_SEM = asyncio.Semaphore(3)
 
 # B8: 常驻进程里每个 register_task 都往 _tasks 塞且从不清理，跑几周/几百个会议后
 # 内存堆几百个 task dict（各带 ≤300 logs）。设上限，注册时清理最旧的终态 task。
@@ -180,21 +185,19 @@ def _log_stage_summary(meeting_id: str, title: str, *stages) -> None:
 
 
 async def run_pipeline(meeting_id: str, cfg, task_id: Optional[str] = None) -> None:
-    async with _lock:
-        if task_id is None:
-            task_id = latest_task_id(meeting_id)
-        if task_id is None:
-            task_id = register_task(meeting_id)["task_id"]
-
-        try:
-            await _convert_audio(task_id, meeting_id, cfg)
-            await _run_asr(task_id, meeting_id, cfg)
-            storage.update_meta(meeting_id, status="asr_done")
-            update(task_id, status="asr_done", progress=ASR_REAL_END, step="识别完成，待整理")
-            _log_stage_summary(meeting_id, "识别阶段完成", ("convert", "转换"), ("asr", "识别"))
-        except Exception as e:
-            storage.update_meta(meeting_id, status="error", error=str(e))
-            update(task_id, status="error", error=str(e), step="失败")
+    # P1: 锁不再包住整条 pipeline（见 _asr_lock 注释）。convert/ASR 顺序执行本就不重叠，
+    # 但去掉外层锁后，多个会议的 pipeline 可交错：文件 N 的 convert 能与文件 N-1 的 ASR 并行。
+    if task_id is None:
+        task_id = latest_task_id(meeting_id) or register_task(meeting_id)["task_id"]
+    try:
+        await _convert_audio(task_id, meeting_id, cfg)
+        await _run_asr(task_id, meeting_id, cfg)
+        storage.update_meta(meeting_id, status="asr_done")
+        update(task_id, status="asr_done", progress=ASR_REAL_END, step="识别完成，待整理")
+        _log_stage_summary(meeting_id, "识别阶段完成", ("convert", "转换"), ("asr", "识别"))
+    except Exception as e:
+        storage.update_meta(meeting_id, status="error", error=str(e))
+        update(task_id, status="error", error=str(e), step="失败")
 
 
 async def _convert_audio(task_id, meeting_id, cfg) -> None:
@@ -204,10 +207,15 @@ async def _convert_audio(task_id, meeting_id, cfg) -> None:
     meta = storage.get_meeting(meeting_id)["meta"]
     src = mdir / meta["audio_file"]
     dst = mdir / "audio_wav.wav"
+    loop = asyncio.get_running_loop()
+    # P1: ffmpeg/ffprobe 是阻塞 subprocess，必须丢到线程池执行——否则会卡住整个事件
+    # 循环。解锁后多 pipeline 并发时尤其致命：一个 convert 会冻住所有 HTTP/WS 与别的
+    # pipeline 的 ASR await。同时用 _CONVERT_SEM 限制并发 ffmpeg 数量。
     t0 = time.time()
-    audio.convert_to_wav(str(src), str(dst))
+    async with _CONVERT_SEM:
+        await loop.run_in_executor(None, audio.convert_to_wav, str(src), str(dst))
     convert_s = time.time() - t0
-    duration_ms = audio.get_duration_ms(str(dst))
+    duration_ms = await loop.run_in_executor(None, audio.get_duration_ms, str(dst))
     append_log(meeting_id, "info", f"音频转换完成: 时长 {duration_ms/1000:.0f}s（耗时 {convert_s:.1f}s）")
     storage.update_meta(
         meeting_id,
@@ -224,21 +232,28 @@ async def _run_asr(task_id, meeting_id, cfg) -> None:
     mdir = storage.meeting_dir(meeting_id)
     wav = str(mdir / "audio_wav.wav")
     loop = asyncio.get_running_loop()
-    stop_fake = asyncio.Event()
+    # P1: 模型单例互斥。排队等待时给个"排队"提示（不跑 fake ticker，避免空等时进度虚增）；
+    # 拿到锁后才真正开始识别并计时。
+    if asr.is_busy():
+        update(task_id, step="排队等待识别")
+        append_log(meeting_id, "info", "前面有任务正在识别，排队中…")
+    async with _asr_lock:
+        update(task_id, step="语音识别")
+        stop_fake = asyncio.Event()
 
-    async def fake_ticker():
-        start = time.time()
-        while not stop_fake.is_set():
-            await asyncio.sleep(2)
-            advance_asr_progress(task_id, time.time() - start)
+        async def fake_ticker():
+            start = time.time()
+            while not stop_fake.is_set():
+                await asyncio.sleep(2)
+                advance_asr_progress(task_id, time.time() - start)
 
-    ticker = asyncio.create_task(fake_ticker())
-    t0 = time.time()
-    try:
-        raw = await loop.run_in_executor(None, asr.transcribe, wav, cfg.asr, _log_cb(meeting_id))
-    finally:
-        stop_fake.set()
-        await ticker
+        ticker = asyncio.create_task(fake_ticker())
+        t0 = time.time()
+        try:
+            raw = await loop.run_in_executor(None, asr.transcribe, wav, cfg.asr, _log_cb(meeting_id))
+        finally:
+            stop_fake.set()
+            await ticker
     asr_s = time.time() - t0
     storage.save_raw(meeting_id, raw)
     storage.update_meta(meeting_id, spk_count=raw.get("spk_count", 0))
@@ -288,17 +303,17 @@ async def _run_summarize(task_id, meeting_id, cfg) -> None:
 async def retry_llm(meeting_id: str, cfg, task_id: Optional[str] = None) -> str:
     if task_id is None:
         task_id = register_task(meeting_id)["task_id"]
-    async with _lock:
-        try:
-            await _run_polish(task_id, meeting_id, cfg)
-            await _run_summarize(task_id, meeting_id, cfg)
-            storage.update_meta(meeting_id, status="done", error=None)
-            update(task_id, status="done", progress=100, step="完成")
-            _log_stage_summary(meeting_id, "整理完成",
-                               ("convert", "转换"), ("asr", "识别"), ("polish", "整理"), ("summarize", "总结"))
-        except Exception as e:
-            storage.update_meta(meeting_id, status="error", error=str(e))
-            update(task_id, status="error", error=str(e))
+    # P1: polish+summarize 走外部 LLM（无模型单例互斥），不需要 _asr_lock；多会议可并发整理。
+    try:
+        await _run_polish(task_id, meeting_id, cfg)
+        await _run_summarize(task_id, meeting_id, cfg)
+        storage.update_meta(meeting_id, status="done", error=None)
+        update(task_id, status="done", progress=100, step="完成")
+        _log_stage_summary(meeting_id, "整理完成",
+                           ("convert", "转换"), ("asr", "识别"), ("polish", "整理"), ("summarize", "总结"))
+    except Exception as e:
+        storage.update_meta(meeting_id, status="error", error=str(e))
+        update(task_id, status="error", error=str(e))
     return task_id
 
 

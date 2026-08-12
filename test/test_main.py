@@ -146,6 +146,67 @@ def test_rename_speakers_persists(client):
     assert meta["speaker_names"] == {"0": "Alice", "1": "Bob"}
 
 
+# --- P0.3: speaker merge / split (pure meta remap) ---
+def _seed_speakers(client, mid):
+    storage.save_raw(mid, {"sentences": [
+        {"start": 0, "end": 1000, "spk": 0, "text": "a1"},
+        {"start": 1100, "end": 2000, "spk": 1, "text": "b1"},
+        {"start": 2100, "end": 3000, "spk": 2, "text": "c1"},
+        {"start": 3100, "end": 4000, "spk": 1, "text": "b2"},
+    ], "spk_count": 3})
+    client.put(f"/api/meetings/{mid}/speakers", json={"names": {"0": "Alice", "1": "Bob", "2": "Carol"}})
+
+
+def test_remap_merge_speakers(client):
+    mid = _upload(client)
+    _seed_speakers(client, mid)
+    # merge spk 2 -> 0 (Carol into Alice)
+    r = client.post(f"/api/meetings/{mid}/speakers/remap", json={"map": {"2": "0"}})
+    assert r.status_code == 200
+    raw = storage.get_meeting(mid)["raw"]["sentences"]
+    # distinct spks now {0,1} -> normalized {0,1}; spk 2 sentences became 0
+    assert sorted({s["spk"] for s in raw}) == [0, 1]
+    assert raw[0]["spk"] == 0 and raw[2]["spk"] == 0  # Carol's sentence now Alice
+    meta = storage.get_meeting(mid)["meta"]
+    assert meta["spk_count"] == 2
+    # names carried over; spk 0 keeps Alice
+    assert meta["speaker_names"]["0"] == "Alice"
+
+
+def test_remap_sentence_reassign_then_renormalize(client):
+    mid = _upload(client)
+    _seed_speakers(client, mid)
+    # spk 1 owns two sentences (idx 1 & 3); split by moving idx 1 to a brand-new
+    # speaker id. distinct grows 3 -> 4 and ids renormalize to contiguous 0..3.
+    r = client.post(f"/api/meetings/{mid}/speakers/remap",
+                    json={"sentences": {"1": "9"}})
+    assert r.status_code == 200
+    raw = storage.get_meeting(mid)["raw"]["sentences"]
+    assert sorted({s["spk"] for s in raw}) == [0, 1, 2, 3]  # 4 distinct, contiguous
+    meta = storage.get_meeting(mid)["meta"]
+    assert meta["spk_count"] == 4
+    # the moved sentence and the remaining spk-1 sentence are now different speakers
+    assert raw[1]["spk"] != raw[3]["spk"]
+
+
+def test_remap_updates_processed_md_speaker_refs(client):
+    mid = _upload(client)
+    _seed_speakers(client, mid)
+    storage.save_processed(mid, "## 说话人 0\n\na\n\n## 说话人 2\n\nc\n")
+    client.post(f"/api/meetings/{mid}/speakers/remap", json={"map": {"2": "0"}})
+    processed = storage.get_meeting(mid)["processed"]
+    # 说话人 2 merged into 0; the header reference should be remapped
+    assert "说话人 2" not in processed
+    assert processed.count("说话人 0") == 2
+
+
+def test_remap_rejects_bad_sentence_index(client):
+    mid = _upload(client)
+    _seed_speakers(client, mid)
+    assert client.post(f"/api/meetings/{mid}/speakers/remap",
+                       json={"sentences": {"99": "0"}}).status_code == 400
+
+
 def test_set_meeting_context_persists(client):
     mid = client.post("/api/upload", files={"audio": ("a.wav", io.BytesIO(b"x"), "audio/wav")}, data={"title": "T"}).json()["meeting_id"]
     r = client.put(f"/api/meetings/{mid}/context", json={"meeting_context": "X 项目周会；术语：K8s"})
@@ -230,6 +291,67 @@ def test_export_md_before_polish_returns_400(client):
     mid = client.post("/api/upload", files={"audio": ("a.wav", io.BytesIO(b"x"), "audio/wav")}, data={"title": "T"}).json()["meeting_id"]
     r = client.get(f"/api/meetings/{mid}/export?format=md")
     assert r.status_code == 400
+
+
+# --- P1.1 / P1.2: docx, minutes, export options ---
+def test_export_docx_renders_processed(client):
+    from docx import Document
+    mid = _upload(client)
+    storage.save_processed(mid, "## 说话人 0\n\n你好世界\n\n- 要点一\n")
+    client.put(f"/api/meetings/{mid}/speakers", json={"names": {"0": "Alice"}})
+    r = client.get(f"/api/meetings/{mid}/export?format=docx")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith(_docx_prefix())
+    doc = Document(io.BytesIO(r.content))
+    paras = [p.text for p in doc.paragraphs]
+    assert any("Alice" in t for t in paras)      # speaker name applied
+    assert any("要点一" in t for t in paras)     # bullet preserved
+
+
+def test_export_minutes_uses_structured_summary(client):
+    mid = _upload(client)
+    storage.save_summary_json(mid, {"summary": "概述X", "decisions": ["决定甲"],
+                                    "action_items": ["待办乙"], "open_questions": []})
+    client.put(f"/api/meetings/{mid}/speakers", json={"names": {"0": "Alice"}})
+    md = client.get(f"/api/meetings/{mid}/export?format=minutes").text
+    assert "概述X" in md and "决定甲" in md and "待办乙" in md
+    assert md.startswith("# ")  # title heading prepended
+
+
+def test_export_minutes_docx(client):
+    from docx import Document
+    mid = _upload(client)
+    storage.save_summary_json(mid, {"summary": "概述X", "decisions": [], "action_items": [], "open_questions": []})
+    r = client.get(f"/api/meetings/{mid}/export?format=minutes_docx")
+    assert r.status_code == 200
+    doc = Document(io.BytesIO(r.content))
+    assert any("概述X" in p.text for p in doc.paragraphs)
+
+
+def test_export_txt_options_omit_speakers_and_timestamps(client):
+    mid = _upload(client)
+    storage.save_raw(mid, {"sentences": [
+        {"start": 0, "end": 1000, "spk": 0, "text": "你好"},
+        {"start": 1100, "end": 2000, "spk": 1, "text": "再见"},
+    ]})
+    client.put(f"/api/meetings/{mid}/speakers", json={"names": {"0": "Alice", "1": "Bob"}})
+    full = client.get(f"/api/meetings/{mid}/export?format=txt").text
+    assert "Alice" in full and "00:00:00" in full
+    no_spk = client.get(f"/api/meetings/{mid}/export?format=txt&speakers=false").text
+    assert "Alice" not in no_spk and "你好" in no_spk
+    no_ts = client.get(f"/api/meetings/{mid}/export?format=txt&timestamps=false").text
+    assert "00:00:00" not in no_ts and "Alice" in no_ts
+    bare = client.get(f"/api/meetings/{mid}/export?format=txt&speakers=false&timestamps=false").text
+    assert bare.strip() == "你好\n再见"
+
+
+def test_export_rejects_unknown_format(client):
+    mid = _upload(client)
+    assert client.get(f"/api/meetings/{mid}/export?format=pdf").status_code == 400
+
+
+def _docx_prefix():
+    return "application/vnd.openxmlformats-officedocument"
 
 
 def _upload(client, title="T"):

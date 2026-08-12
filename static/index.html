@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>听记 · 让录音变成文字</title>
-  <link rel="stylesheet" href="/static/style.css?v=14">
+  <link rel="stylesheet" href="/static/style.css?v=15">
 </head>
 <body>
   <header>
@@ -60,19 +60,13 @@
           <line x1="8" y1="21" x2="16" y2="21"/>
         </svg>
         <p>拖拽音频文件到此处，或点击选择</p>
-        <p class="hint">wav · mp3 · m4a · aac · flac · ogg · opus</p>
-        <input id="file-input" type="file" accept="audio/*,.m4a,.aac,.opus" hidden>
+        <p class="hint">支持一次选多个文件批量转录 · wav · mp3 · m4a · aac · flac · ogg · opus</p>
+        <input id="file-input" type="file" accept="audio/*,.m4a,.aac,.opus" multiple hidden>
       </div>
+      <ul id="queue" class="queue-list hidden"></ul>
       <div class="form-row">
-        <label>
-          <span>会议标题</span>
-          <input id="title" type="text" placeholder="例如：产品周会">
-        </label>
+        <span id="upload-hint" class="hint">每个文件可在下方改名；多个文件会并行转录（识别按队列依次进行）。</span>
         <button id="submit-btn" disabled>开始转录</button>
-      </div>
-      <div id="progress" class="progress hidden">
-        <div class="bar"><div id="bar-fill" class="bar-fill"></div></div>
-        <div id="progress-text" class="progress-text"></div>
       </div>
       <div id="error" class="error hidden"></div>
     </section>
@@ -205,6 +199,6 @@
 
   <script src="/static/access.js?v=1"></script>
   <script src="/static/common.js?v=2"></script>
-  <script src="/static/app.js?v=20"></script>
+  <script src="/static/app.js?v=21"></script>
 </body>
 </html>

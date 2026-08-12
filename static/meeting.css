@@ -183,6 +183,15 @@ header h1 .brand:hover { opacity: 0.85; }
   letter-spacing: 0.08em;
   font-style: italic;
 }
+/* P0.3 说话人合并模式 */
+.speaker-tools { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+.merge-hint { font-size: 12px; color: var(--seal); }
+.speakers-bar.merge-active .spk-chip { box-shadow: 0 0 0 2px var(--paper-edge); }
+.speakers-bar.merge-active .spk-chip:hover { box-shadow: 0 0 0 2px var(--seal, #b91c1c); }
+.spk-chip.merge-src {
+  box-shadow: 0 0 0 2px var(--seal, #b91c1c) !important;
+  background: var(--paper) !important;
+}
 /* speaker color variants (0-6) - aligned with --spk-* */
 .spk-0 { color: var(--spk-0); }
 .spk-1 { color: var(--spk-1); }
@@ -623,6 +632,19 @@ mark.search-hit.current {
   height: 36px;
   filter: invert(1) hue-rotate(180deg);
 }
+/* U8 校对增强：倍速 + 跳静音 */
+.play-opts {
+  display: flex; gap: 14px; align-items: center; flex-shrink: 0;
+  color: var(--paper); font-size: 13px;
+}
+.play-opts label { display: flex; align-items: center; gap: 6px; }
+.play-opts select {
+  width: auto; padding: 3px 6px !important; font-size: 12px;
+  border: 1px solid var(--paper-edge); background: transparent; color: var(--paper);
+  filter: invert(1) hue-rotate(180deg);
+}
+.skip-silence-label { cursor: pointer; opacity: 0.85; white-space: nowrap; }
+.skip-silence-label input { accent-color: var(--seal); }
 
 /* --- 编辑弹层 --- */
 .hotword-add {
