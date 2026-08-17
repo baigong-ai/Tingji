@@ -1115,6 +1115,13 @@ async function load() {
     const tStr = fmtTotalTimings(meta.timings);
     if (tStr) metaLine += ' · ' + tStr;
     document.getElementById('m-meta').textContent = metaLine;
+    const pwEl = document.getElementById('polish-warning');
+    if (meta.polish_warning) {
+      pwEl.textContent = meta.polish_warning;
+      pwEl.classList.remove('hidden');
+    } else {
+      pwEl.classList.add('hidden');
+    }
     currentStatus = meta.status;
     const retryBtn = document.getElementById('retry-btn');
     const processing = PROCESSING_STATUSES;

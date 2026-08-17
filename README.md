@@ -235,7 +235,7 @@ git clone --depth 1 https://www.modelscope.cn/iic/speech_campplus_sv_zh-cn_16k-c
 | `asr.idle_unload_minutes` | 模型闲置多久后自动卸载（分钟），默认 30；0 = 从不。可在网页「设置 → 服务」改，即时生效 |
 | `llm.mode` | `api` 或 `ollama` |
 | `llm.api.*` | OpenAI 兼容 API（base_url / api_key / model） |
-| `llm.ollama.*` | 本地 Ollama（base_url / model） |
+| `llm.ollama.*` | 本地 Ollama（base_url / model / think） |
 | `llm.polish_chunk_minutes` | 整理分段时长（分钟），默认 6 |
 | `server.lan_token` | 默认 `false`。设 `true` 后开启**局域网访问令牌**：非本机（非 127.x）访问 `/api/*` 与 `/ws/*` 需带令牌（首次启动会生成并打印一个带 `?token=…` 的局域网地址，浏览器打开一次即记入本地，之后自动带上）。本机访问不受影响。在 `0.0.0.0` 开放给局域网时建议开启 |
 
@@ -265,12 +265,14 @@ llm:
 
 ### 模型选择
 
+**本地处理优先**是本项目的基本原则：识别（ASR）全程本地，整理/总结默认也走本地 Ollama——会议内容不出你的机器。在线 API 只是可选增强，适合本地模型力不从心时手动切换。
+
 模型选哪个看你的硬件和偏好，这里不替你选，只列实测过的：
 
 - **本地 Ollama**：`Qwen3:8b`（gguf；WSL + RTX 4060 Ti、Mac mini M4 均实测可用）
 - **API（OpenAI 兼容）**：GLM、DeepSeek
 
-思考型模型（Qwen3 系列等）的 thinking 已在代码里通过 Ollama 原生 API 的 `think: false` 关闭，否则会慢且可能返回空内容。
+思考型模型（Qwen3 系列等）的 thinking 可通过设置页「开启思考模式」开关控制（`ollama.think`，走 Ollama 原生 API 的 `think` 字段）：关闭快但小模型整理质量差（实测可能照抄原文），开启更准但更慢。**本地用 Qwen3 整理时建议开启**；思考失控返回空内容时会按失败重试并兜底保留原文。整理稿与原文几乎一致时，详情页会显示告警横幅提示更换模型或开启思考。
 
 ## 性能参考
 

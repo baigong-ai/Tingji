@@ -1,3 +1,4 @@
+import difflib
 import json
 import logging
 import re
@@ -12,15 +13,31 @@ from app.config import LLMConfig
 log = logging.getLogger(__name__)
 
 POLISH_PROMPT = """你是一个会议录音整理助手。下面是一段会议的逐句转录（按时间顺序，已标注说话人）。
-请整理成规范的会议记录：
+语音识别原文里有同音错字和口语碎句，请整理成规范的会议记录。
 
 规则：
 - 保留说话人分段，使用 `## 说话人 N` 作为小标题
-- 去除口头禅（那个、然后、嗯、就是、然后然后）和重复词
-- 理顺句子结构，使其通顺
+- 纠正明显的语音识别错误：同音字、术语、人名、专有名词写错的，结合上下文和会议背景改准
+  （如背景提到"国际足联"，原文的"菲马"应改为"国际足联"）；拿不准的保留原样，不要凭空猜造
+- 去除口头禅（那个、然后、嗯、就是）和重复的词、句
+- 把同一说话人连续的碎句合并改写为通顺完整的段落
 - 不要合并不同说话人的内容
 - 不要添加未出现的信息
-- 同一说话人连续多句可合并为一个或几个完整段落
+- 只输出整理后的正文，不要解释、不要复述规则
+
+示例：
+转录：
+## 说话人 0
+嗯，
+就是说那个菲马啊，
+世界杯的转播，
+卖卖了八十万美元哦，
+四年翻了十，
+也是因为电视普及了。
+
+整理后：
+## 说话人 0
+国际足联（FIFA）世界杯的电视转播卖出了八十万美元，四年翻了十倍，这也是因为电视普及了。
 
 转录内容：
 {input}
@@ -79,9 +96,11 @@ def _chat_api(prompt: str, cfg: LLMConfig, json_mode: bool) -> str:
 
 def _chat_ollama(prompt: str, cfg: LLMConfig, json_mode: bool) -> str:
     """Ollama 走原生 /api/chat 而不是 OpenAI 兼容接口：只有原生接口支持
-    think:false。思考型模型（如 qwen3.5）不关思考时 reasoning 会失控，
-    content 直接返回空；OpenAI 兼容接口不认 think/chat_template_kwargs，
-    /no_think 后缀在该模型上反而加剧失控（均已实测验证）。"""
+    think 开关。思考型模型（如 qwen3.5）不关思考时 reasoning 可能失控、
+    content 返回空（由 EmptyLLMResponse 兜底），但关思考整理质量明显下降
+    （小模型只会照抄原文）——交给 cfg.ollama.think 让用户按模型权衡。
+    OpenAI 兼容接口不认 think/chat_template_kwargs，/no_think 后缀行为
+    随 Ollama 版本漂移，均不可靠。"""
     base = cfg.ollama.base_url.rstrip("/")
     if base.endswith("/v1"):
         base = base[:-3]
@@ -89,7 +108,7 @@ def _chat_ollama(prompt: str, cfg: LLMConfig, json_mode: bool) -> str:
         "model": cfg.ollama.model,
         "messages": [{"role": "user", "content": prompt.rstrip()}],
         "stream": False,
-        "think": False,
+        "think": cfg.ollama.think,
         # num_ctx: ollama 默认 4096，长会议整理/总结会超限，放宽到 16k
         "options": {"num_ctx": 16384, "temperature": cfg.temperature},
     }
@@ -193,7 +212,9 @@ DEFAULT_TEMPLATES = [
 ]
 
 
-def template_prompt_block(tpl: dict) -> str:
+def template_prompt_block(tpl: dict, purpose: str = "summarize") -> str:
+    """purpose="polish" 时只带背景/术语（供整理纠偏）；总结才带方向/内容/框架，
+    避免总结向字段混进整理 prompt 稀释有效指令。"""
     if not tpl:
         return ""
     parts = []
@@ -201,16 +222,33 @@ def template_prompt_block(tpl: dict) -> str:
         parts.append("会议背景：" + tpl["background"].strip())
     if str(tpl.get("terms", "")).strip():
         parts.append("常用术语/人名/产品名（以此为准，纠正识别错误）：" + tpl["terms"].strip())
-    if str(tpl.get("direction", "")).strip():
-        parts.append("总结方向：" + tpl["direction"].strip())
-    if str(tpl.get("content", "")).strip():
-        parts.append("总结内容侧重：" + tpl["content"].strip())
-    if str(tpl.get("framework", "")).strip():
-        parts.append("总结框架：" + tpl["framework"].strip())
+    if purpose != "polish":
+        if str(tpl.get("direction", "")).strip():
+            parts.append("总结方向：" + tpl["direction"].strip())
+        if str(tpl.get("content", "")).strip():
+            parts.append("总结内容侧重：" + tpl["content"].strip())
+        if str(tpl.get("framework", "")).strip():
+            parts.append("总结框架：" + tpl["framework"].strip())
     return ("模板要求：\n" + "\n".join(parts) + "\n\n") if parts else ""
 
 
-def polish(sentences: list[dict], cfg: LLMConfig, on_log=None, on_progress=None, meeting_context: str = "", template_hint: str = "") -> str:
+POLISH_ECHO_THRESHOLD = 0.97
+
+
+def _normalize_for_compare(text: str) -> str:
+    """比对整理稿与原文时剥离标题和标点/空白，只看正文字符。"""
+    text = re.sub(r"^##.*$", "", text, flags=re.M)
+    return re.sub(r"[\s，。、,.!！?？…—\-~：:；;（）()\"“”]+", "", text)
+
+
+def _similarity(a: str, b: str) -> float:
+    na, nb = _normalize_for_compare(a), _normalize_for_compare(b)
+    if not na or not nb:
+        return 1.0 if na == nb else 0.0
+    return difflib.SequenceMatcher(None, na, nb).ratio()
+
+
+def polish(sentences: list[dict], cfg: LLMConfig, on_log=None, on_progress=None, meeting_context: str = "", template_hint: str = "", on_quality=None) -> str:
     def _log(level, msg):
         if on_log:
             try:
@@ -221,17 +259,24 @@ def polish(sentences: list[dict], cfg: LLMConfig, on_log=None, on_progress=None,
     ctx = _context_block(meeting_context) + (template_hint or "")
     _log("info", f"整理: 共 {len(chunks)} 段, 模型 {_model_name(cfg)}")
     outputs = []
+    flagged = []
     for i, chunk in enumerate(chunks):
         t0 = time.time()
         _log("info", f"整理第 {i+1}/{len(chunks)} 段 ...")
-        prompt = ctx + POLISH_PROMPT.format(input=format_chunk(chunk))
+        src = format_chunk(chunk)
+        prompt = ctx + POLISH_PROMPT.format(input=src)
         try:
-            outputs.append(_chat_retry(prompt, cfg))
+            out = _chat_retry(prompt, cfg)
         except Exception as e:
             log.warning("polish chunk %d failed: %s", i + 1, e)
             _log("warn", f"第 {i+1} 段整理失败（{e}）, 保留原文")
             outputs.append(format_chunk(chunk, mark_failed=True))
             continue
+        sim = _similarity(src, out)
+        if sim >= POLISH_ECHO_THRESHOLD:
+            flagged.append((i + 1, sim))
+            _log("warn", f"第 {i+1}/{len(chunks)} 段整理稿与原文几乎一致（相似度 {sim:.0%}），疑似模型未实际整理")
+        outputs.append(out)
         _log("info", f"整理第 {i+1}/{len(chunks)} 段完成 ({time.time()-t0:.1f}s)")
         if on_progress:
             try:
@@ -239,6 +284,15 @@ def polish(sentences: list[dict], cfg: LLMConfig, on_log=None, on_progress=None,
             except Exception:
                 pass
     _log("info", f"整理完成, 共 {len(chunks)} 段")
+    if on_quality:
+        try:
+            on_quality({
+                "flagged": len(flagged),
+                "total": len(chunks),
+                "similarity": min((s for _, s in flagged), default=0.0),
+            })
+        except Exception:
+            pass
     return "\n\n---\n\n".join(outputs)
 
 

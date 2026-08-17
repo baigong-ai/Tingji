@@ -81,6 +81,7 @@ def create_meeting(title: str, audio_path: str, ext: str) -> str:
         "status": "pending",
         "spk_count": 0,
         "error": None,
+        "polish_warning": None,
         "tags": [],
         "source": "upload",
     }
@@ -104,6 +105,7 @@ def create_live_meeting(title: str) -> str:
         "status": "live_recording",
         "spk_count": 0,
         "error": None,
+        "polish_warning": None,
         "tags": [],
         "source": "live",
     }

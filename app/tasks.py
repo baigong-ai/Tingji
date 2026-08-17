@@ -141,12 +141,12 @@ def _log_cb(meeting_id: str):
     return cb
 
 
-def _resolve_template_hint(tpl_id: str) -> str:
+def _resolve_template_hint(tpl_id: str, purpose: str = "summarize") -> str:
     if not tpl_id:
         return ""
     for t in storage.load_templates():
         if t.get("id") == tpl_id:
-            return llm.template_prompt_block(t)
+            return llm.template_prompt_block(t, purpose=purpose)
     return ""
 
 
@@ -269,13 +269,23 @@ async def _run_polish(task_id, meeting_id, cfg) -> None:
     sentences = data["raw"]["sentences"]
     meta = data.get("meta") or {}
     ctx = meta.get("meeting_context") or ""
-    hint = _resolve_template_hint(meta.get("template") or "")
+    hint = _resolve_template_hint(meta.get("template") or "", purpose="polish")
     loop = asyncio.get_running_loop()
     def on_prog(frac):
         update(task_id, progress=int(POLISH_START + frac * (POLISH_END - POLISH_START)))
+    quality = {}
+    def on_quality(info):
+        quality.update(info)
     t0 = time.time()
-    md = await loop.run_in_executor(None, llm.polish, sentences, cfg.llm, _log_cb(meeting_id), on_prog, ctx, hint)
+    md = await loop.run_in_executor(None, llm.polish, sentences, cfg.llm, _log_cb(meeting_id), on_prog, ctx, hint, on_quality)
     storage.save_processed(meeting_id, md)
+    if quality.get("flagged"):
+        msg = (f"整理稿与原文几乎一致（{quality['flagged']}/{quality['total']} 段相似度 "
+               f"{quality['similarity']:.0%}），模型疑似未实际整理。"
+               "建议：到「设置」更换更强的模型（如 API 模式）后，点「重新整理」重试。")
+        storage.update_meta(meeting_id, polish_warning=msg)
+    elif "flagged" in quality:
+        storage.update_meta(meeting_id, polish_warning=None)
     _record_timing(meeting_id, "polish", time.time() - t0)
     update(task_id, progress=POLISH_END)
 

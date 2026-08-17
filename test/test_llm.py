@@ -148,6 +148,37 @@ def test_template_prompt_block(cfg_api):
     assert llm.template_prompt_block({}) == ""
 
 
+def test_template_prompt_block_polish_excludes_summary_fields(cfg_api):
+    tpl = {"background": "周会", "terms": "K8s、灰度", "direction": "进展", "content": "待办", "framework": "框架"}
+    block = llm.template_prompt_block(tpl, purpose="polish")
+    assert "会议背景：周会" in block
+    assert "K8s、灰度" in block
+    assert "总结方向" not in block
+    assert "总结内容" not in block
+    assert "总结框架" not in block
+
+
+def test_polish_echo_flags_on_quality(cfg_api):
+    """模型照抄原文（假整理）必须通过 on_quality 上报，不能静默当成功。"""
+    sentences = [{"text": "嗯就是说那个菲马啊世界杯转播卖了八十万美元", "start": 0, "end": 1000, "spk": 0}]
+    echo = llm.format_chunk(sentences)
+    quality = {}
+    with mock.patch("app.llm._chat", return_value=echo):
+        llm.polish(sentences, cfg_api, on_quality=quality.update)
+    assert quality["flagged"] == 1
+    assert quality["total"] == 1
+    assert quality["similarity"] >= llm.POLISH_ECHO_THRESHOLD
+
+
+def test_polish_real_change_not_flagged(cfg_api):
+    sentences = [{"text": "嗯就是说那个菲马啊世界杯转播卖了八十万美元", "start": 0, "end": 1000, "spk": 0}]
+    rewritten = "## 说话人 0\n国际足联（FIFA）世界杯的电视转播卖出了八十万美元。"
+    quality = {}
+    with mock.patch("app.llm._chat", return_value=rewritten):
+        llm.polish(sentences, cfg_api, on_quality=quality.update)
+    assert quality["flagged"] == 0
+
+
 def test_polish_injects_meeting_context(cfg_api):
     sentences = [{"text": "hi", "start": 0, "end": 1000, "spk": 0}]
     with mock.patch("app.llm._chat", return_value="## 说话人 0\nhi") as m:
@@ -187,6 +218,15 @@ def test_chat_ollama_json_mode_sets_format(cfg_ollama):
     with mock.patch("urllib.request.urlopen", _fake_urlopen(captured, "{}")):
         llm._chat("prompt", cfg_ollama, json_mode=True)
     assert captured[0][1]["format"] == "json"
+
+
+def test_chat_ollama_think_on_propagates(cfg_ollama):
+    """用户在设置里开了思考开关，think:true 必须透传到原生 /api/chat。"""
+    cfg_ollama.ollama.think = True
+    captured = []
+    with mock.patch("urllib.request.urlopen", _fake_urlopen(captured, "ok")):
+        llm._chat("prompt", cfg_ollama)
+    assert captured[0][1]["think"] is True
 
 
 def test_chat_empty_response_raises(cfg_ollama):

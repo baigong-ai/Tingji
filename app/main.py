@@ -365,7 +365,8 @@ async def get_llm_settings():
     return {
         "mode": config.llm.mode,
         "api": {"base_url": config.llm.api.base_url, "model": config.llm.api.model, "has_key": bool(config.llm.api.api_key)},
-        "ollama": {"base_url": config.llm.ollama.base_url, "model": config.llm.ollama.model},
+        "ollama": {"base_url": config.llm.ollama.base_url, "model": config.llm.ollama.model,
+                   "think": config.llm.ollama.think},
     }
 
 
@@ -389,6 +390,8 @@ async def set_llm_settings(payload: dict):
         config.llm.ollama.base_url = ollama["base_url"]
     if ollama.get("model"):
         config.llm.ollama.model = ollama["model"]
+    if ollama.get("think") is not None:
+        config.llm.ollama.think = bool(ollama["think"])
     _persist_llm_config()
     return {"ok": True}
 
@@ -412,6 +415,7 @@ async def test_llm_settings(payload: dict):
             base_url=ollama.get("base_url") or (cur.ollama.base_url if cur else ""),
             model=ollama.get("model") or (cur.ollama.model if cur else ""),
             api_key=(cur.ollama.api_key if cur else "ollama"),
+            think=bool(ollama.get("think", cur.ollama.think if cur else False)),
         ),
         polish_chunk_minutes=cur.polish_chunk_minutes if cur else 6,
         temperature=cur.temperature if cur else 0.3,
@@ -450,6 +454,7 @@ def _persist_llm_config() -> None:
             "base_url": config.llm.ollama.base_url,
             "model": config.llm.ollama.model,
             "api_key": config.llm.ollama.api_key,
+            "think": config.llm.ollama.think,
         }
     _update_config_yaml(m)
 

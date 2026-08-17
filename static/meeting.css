@@ -211,6 +211,18 @@ header h1 .brand:hover { opacity: 0.85; }
   border: 1px solid var(--ink-faint);
 }
 .speaker-timeline:empty { display: none; }
+
+/* --- 整理疑似未生效的显性告警 --- */
+.polish-warning {
+  margin-top: 10px;
+  padding: 10px 14px;
+  border-radius: 6px;
+  border: 1px solid #b45309;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 13px;
+  line-height: 1.6;
+}
 .tl-seg {
   display: flex;
   align-items: center;

@@ -210,6 +210,30 @@ def test_record_timing_and_summary(data_dir):
     assert "识别阶段完成" in storage.read_log_lines(mid)[-1]["msg"]
 
 
+def test_run_polish_sets_and_clears_polish_warning(data_dir, monkeypatch):
+    """on_quality 报"假整理"时 meta.polish_warning 必须落盘（前端横幅的数据源），
+    重新整理见效后要清掉，否则旧告警会一直挂着。"""
+    mid = _make_meeting(data_dir)
+    storage.save_raw(mid, {"text": "x", "sentences": [{"text": "hi", "start": 0, "end": 1, "spk": 0}], "spk_count": 1})
+    tid = tasks.register_task(mid)["task_id"]
+    cfg = mock.Mock()
+
+    def fake_polish(sentences, _cfg, on_log=None, on_progress=None,
+                    meeting_context="", template_hint="", on_quality=None, _info=None):
+        if on_quality:
+            on_quality(fake_polish.info)
+        return "## 说话人 0\nhi"
+
+    fake_polish.info = {"flagged": 1, "total": 1, "similarity": 1.0}
+    monkeypatch.setattr(tasks.llm, "polish", fake_polish)
+    asyncio.run(tasks._run_polish(tid, mid, cfg))
+    assert storage.get_meeting(mid)["meta"]["polish_warning"]
+
+    fake_polish.info = {"flagged": 0, "total": 1, "similarity": 0.0}
+    asyncio.run(tasks._run_polish(tid, mid, cfg))
+    assert storage.get_meeting(mid)["meta"]["polish_warning"] is None
+
+
 # --- B8: _tasks bounded growth ----------------------------------------------
 def test_prune_tasks_evicts_oldest_terminal_first(monkeypatch):
     monkeypatch.setattr(tasks, "_MAX_TASKS", 5)

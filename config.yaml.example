@@ -19,6 +19,8 @@ llm:
     base_url: "http://localhost:11434/v1"
     model: "qwen2.5:7b"
     api_key: "ollama"
+    # 思考型模型（Qwen3 等）是否开启思考：开启整理更准但更慢，关闭快但小模型可能照抄原文
+    think: false
   polish_chunk_minutes: 6
   temperature: 0.3
   max_retries: 2

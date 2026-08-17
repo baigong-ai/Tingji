@@ -617,6 +617,7 @@ async function loadLLM() {
     toggleLLMFields();
     document.getElementById('ollama-url').value = d.ollama.base_url;
     document.getElementById('ollama-model').innerHTML = `<option>${escapeHtml(d.ollama.model)}</option>`;
+    document.getElementById('ollama-think').checked = !!d.ollama.think;
     document.getElementById('api-url').value = d.api.base_url;
     document.getElementById('api-model').value = d.api.model;
     document.getElementById('api-key').placeholder = d.api.has_key ? '已设置，留空不改' : '输入 api_key';
@@ -655,7 +656,7 @@ function buildLLMPayload(mode, withKey) {
   const payload = {
     mode,
     api: { base_url: document.getElementById('api-url').value.trim(), model: document.getElementById('api-model').value.trim() },
-    ollama: { base_url: document.getElementById('ollama-url').value.trim(), model: document.getElementById('ollama-model').value }
+    ollama: { base_url: document.getElementById('ollama-url').value.trim(), model: document.getElementById('ollama-model').value, think: document.getElementById('ollama-think').checked }
   };
   if (withKey) {
     const k = document.getElementById('api-key').value;

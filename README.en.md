@@ -230,7 +230,7 @@ Almost everything is configurable from the in-browser "Settings" (data directory
 | `asr.idle_unload_minutes` | Minutes of idle before the model auto-unloads from RAM (default 30; 0 = never). Set in Settings → Service; takes effect immediately |
 | `llm.mode` | `api` or `ollama` |
 | `llm.api.*` | OpenAI-compatible API (base_url / api_key / model) |
-| `llm.ollama.*` | Local Ollama (base_url / model) |
+| `llm.ollama.*` | Local Ollama (base_url / model / think) |
 | `llm.polish_chunk_minutes` | chunk length for polishing (minutes), default 6 |
 
 `api_key` supports a `${LLM_API_KEY}` placeholder read from the environment.
@@ -259,12 +259,14 @@ llm:
 
 ### Model selection
 
+**Local-first is a core principle of this project**: ASR runs entirely on-device, and polish/summarize default to local Ollama too — meeting content never leaves your machine. Online APIs are an optional enhancement for cases where local models fall short.
+
 Pick based on your hardware and preference — this doc doesn't pick for you, just lists what's been tested:
 
 - **Local Ollama**: `Qwen3:8b` (gguf; tested on WSL + RTX 4060 Ti and Mac mini M4)
 - **API (OpenAI-compatible)**: GLM, DeepSeek
 
-Thinking-model reasoning (Qwen3 family etc.) is disabled in code via the Ollama native API (`think: false`); otherwise it's very slow and can return empty content.
+Reasoning on thinking models (Qwen3 family etc.) is controlled by the "thinking mode" toggle on the settings page (`ollama.think`, via the Ollama native API `think` field): off is fast but small models may just echo the transcript; on is more accurate but slower. **Recommended ON when polishing with local Qwen3.** Runaway reasoning that returns empty content is retried as a failure with the raw transcript kept as fallback. When a polished draft is nearly identical to the transcript, the detail page shows a warning banner suggesting a stronger model or enabling thinking.
 
 ## Performance
 

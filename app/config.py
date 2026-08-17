@@ -20,6 +20,9 @@ class OllamaConfig:
     base_url: str
     model: str
     api_key: str
+    # 思考型模型（Qwen3 等）是否开启思考。关闭快但整理质量差（8b 实测只会照抄原文），
+    # 开启更准但更慢；runaway reasoning 产空响应由 EmptyLLMResponse 兜底。
+    think: bool = False
 
 
 @dataclass
