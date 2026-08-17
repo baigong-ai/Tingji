@@ -652,9 +652,10 @@ mark.search-hit.current {
 .play-opts label { display: flex; align-items: center; gap: 6px; }
 .play-opts select {
   width: auto; padding: 3px 6px !important; font-size: 12px;
-  border: 1px solid var(--paper-edge); background: transparent; color: var(--paper);
-  filter: invert(1) hue-rotate(180deg);
+  border: 1px solid var(--paper-edge); border-radius: 4px;
+  background: var(--ink); color: var(--paper);
 }
+.play-opts select option { color: #1c1c1c; background: #fff; }
 .skip-silence-label { cursor: pointer; opacity: 0.85; white-space: nowrap; }
 .skip-silence-label input { accent-color: var(--seal); }
 
