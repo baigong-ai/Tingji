@@ -108,7 +108,7 @@ def main() -> int:
             body = json.loads(urllib.request.urlopen(f"{BASE}/api/meetings/{qmid}").read())
             sj = body["summary_json"] or {}
             check("总结结构化编辑保存",
-                  sj.get("summary") == "浏览器改过的概述" and sj.get("decisions") == ["决定甲", "决定乙"],
+                  sj.get("summary") == "浏览器改过的概述" and sj.get("decisions") == [{"text": "决定甲"}, {"text": "决定乙"}],
                   repr(sj))
             check("总结 md 重新生成", "决定乙" in (body["summary"] or ""))
 
@@ -171,6 +171,161 @@ def main() -> int:
             page.wait_for_selector("#resume-btn", state="visible", timeout=8000)
             check("error 状态显示「恢复任务」按钮", page.is_visible("#resume-btn"))
 
+            # ===== v0.7: 纪要时间戳 chip + 个人笔记 + 议题时间轴 =====
+            from app import llm as _llm
+            from datetime import datetime as _dt
+            mid2 = storage.create_meeting("浏览器冒烟0.7", str(src), "wav")
+            storage.save_raw(mid2, {"text": "你好 世界", "sentences": [
+                {"start": 0, "end": 1000, "spk": 0, "text": "先对齐目标"},
+                {"start": 1100, "end": 2000, "spk": 1, "text": "讨论预算"},
+                {"start": 2100, "end": 3000, "spk": 1, "text": "预算要补问的句子"},
+                {"start": 3100, "end": 4000, "spk": 0, "text": "确定方案"},
+                {"start": 4100, "end": 5000, "spk": 0, "text": "分配任务"},
+                {"start": 5100, "end": 5500, "spk": 1, "text": "散会"},
+            ], "spk_count": 2})
+            storage.save_processed(mid2, "# 整理版\n\n内容")
+            sj2 = {"summary": "概述", "decisions": [{"text": "定了方案B", "ts": [3.1]}],
+                   "action_items": [{"text": "张三跟进", "ts": [4.1]}], "open_questions": []}
+            storage.save_summary_json(mid2, sj2)
+            storage.save_summary(mid2, _llm.summary_to_md(_llm.clean_summary_json(sj2)))
+            storage.save_topics(mid2, {"segments": [
+                {"topic": "需求确认", "start": 0, "end": 3.0, "phase": "讨论"},
+                {"topic": "收尾分工", "start": 3.0, "end": 5.5, "phase": "行动"},
+            ], "manual": False})
+            storage.save_notes(mid2, [{"id": "n1", "anchor": {"type": "sentence", "idx": 2},
+                                       "text": "已有锚定笔记", "created_at": "2026-09-09T10:00:00",
+                                       "updated_at": "2026-09-09T10:00:00"}])
+            storage.update_meta(mid2, status="done", audio_wav="audio.wav", spk_count=2, duration_ms=5500)
+            qmid2 = urllib.parse.quote(mid2)
+
+            page.goto(f"{BASE}/m/{qmid2}")
+            page.wait_for_selector('.tab-btn[data-tab="summary"]')
+            page_errors = []
+            page.on("pageerror", lambda e: page_errors.append(str(e)))
+
+            # -- 3.1 纪要时间戳 chip：渲染 + 点击不报错 --
+            page.click('.tab-btn[data-tab="summary"]')
+            page.wait_for_selector("#summary-md .ts-chip", timeout=8000)
+            chips = page.eval_on_selector_all("#summary-md .ts-chip",
+                                              "els => els.map(e => e.dataset.sec)")
+            check("纪要条目时间戳 chip 渲染", "3.1" in chips and "4.1" in chips, repr(chips))
+            page.click("#summary-md .ts-chip")
+            page.wait_for_timeout(300)
+            check("时间戳 chip 点击无 JS 错误", not page_errors, repr(page_errors))
+
+            # -- 总结编辑往返：行尾 [m:ss] 时间戳不丢 --
+            page.click("#sum-edit-btn")
+            page.wait_for_selector("#sum-edit-decisions")
+            decisions_val = page.input_value("#sum-edit-decisions")
+            check("编辑框带出时间戳", "定了方案B [0:03]" in decisions_val, repr(decisions_val))
+            page.fill("#sum-edit-decisions", "改后的决议 [0:04]")
+            page.click("#sum-edit-save")
+            page.wait_for_selector("#sum-edit-btn", state="visible", timeout=8000)
+            sj = json.loads(urllib.request.urlopen(f"{BASE}/api/meetings/{qmid2}").read())["summary_json"]
+            check("编辑保存后 ts 解析回对象",
+                  sj["decisions"] == [{"text": "改后的决议", "ts": [4.0]}], repr(sj["decisions"]))
+
+            # -- 3.2 笔记：原文句入口 + 角标 --
+            page.click('.tab-btn[data-tab="raw"]')
+            page.wait_for_selector("#transcript .note-btn.has-notes", timeout=8000)
+            badge = page.text_content('#transcript .transcript-line[data-idx="2"] .note-btn').strip()
+            check("有笔记的句子显示角标", "1" in badge, repr(badge))
+            page.click('#transcript .transcript-line[data-idx="0"] .note-btn')
+            page.wait_for_selector("#note-modal:not(.hidden)", timeout=8000)
+            check("笔记弹窗显示锚定句", "先对齐目标" in page.text_content("#note-modal-anchor"))
+            page.fill("#note-text", "浏览器新增的锚定笔记")
+            page.click("#note-save")
+            page.wait_for_function(
+                "() => document.querySelector('#transcript .transcript-line[data-idx=\"0\"] .note-btn') && document.querySelector('#transcript .transcript-line[data-idx=\"0\"] .note-btn').textContent.includes('1')",
+                timeout=8000)
+            notes = json.loads(urllib.request.urlopen(f"{BASE}/api/meetings/{qmid2}/notes").read())["notes"]
+            check("锚定笔记落库", any(n["text"] == "浏览器新增的锚定笔记" and n["anchor"]["idx"] == 0 for n in notes),
+                  repr(notes))
+
+            # -- 3.2 笔记：总结 tab 折叠区（列表/跳转/编辑/删除/自由笔记）--
+            page.click('.tab-btn[data-tab="summary"]')
+            page.wait_for_selector("#notes-section:not(.hidden)", timeout=8000)
+            page.click("#notes-toggle")  # 展开
+            page.wait_for_selector("#notes-list:not(.hidden) .note-item", timeout=8000)
+            items = page.eval_on_selector_all("#notes-list .note-item", "els => els.length")
+            check("笔记列表渲染", items == 2, str(items))
+            # 跳转：点第一条笔记（按锚定句时间排序，第一条锚定 idx=0）的时间 chip → 回原文 tab 且高亮
+            page.click('#notes-list .note-item .ts-chip')
+            page.wait_for_selector('#tab-raw.active', timeout=8000)
+            check("点笔记时间戳跳回原文", page.eval_on_selector(
+                "#tab-raw .transcript-line.active", "el => el.dataset.idx") == "0")
+            # 编辑
+            page.click('.tab-btn[data-tab="summary"]')
+            page.click('#notes-list .note-item [data-act="edit"]')
+            page.wait_for_selector("#note-modal:not(.hidden)", timeout=8000)
+            page.fill("#note-text", "改过的笔记")
+            page.click("#note-save")
+            page.wait_for_function(
+                "() => document.querySelector('#notes-list') && document.querySelector('#notes-list').textContent.includes('改过的笔记')",
+                timeout=8000)
+            # 自由笔记
+            page.click("#note-add-free")
+            page.wait_for_selector("#note-modal:not(.hidden)", timeout=8000)
+            page.fill("#note-text", "全局自由笔记")
+            page.click("#note-save")
+            page.wait_for_function(
+                "() => document.querySelector('#notes-list') && document.querySelector('#notes-list').textContent.includes('全局自由笔记')",
+                timeout=8000)
+            free_tags = page.eval_on_selector_all("#notes-list .note-free-tag", "els => els.length")
+            check("自由笔记带「全局」标记", free_tags == 1, str(free_tags))
+            # 删除（confirmDialog）
+            page.click('#notes-list .note-item [data-act="del"]')
+            page.wait_for_selector("#msg-modal:not(.hidden)", timeout=8000)
+            page.click("#msg-ok")
+            page.wait_for_function(
+                "() => document.querySelectorAll('#notes-list .note-item').length === 2", timeout=8000)
+            notes = json.loads(urllib.request.urlopen(f"{BASE}/api/meetings/{qmid2}/notes").read())["notes"]
+            check("删除笔记生效", len(notes) == 2 and all(n["text"] != "改过的笔记" or n["anchor"] for n in notes),
+                  repr(notes))
+
+            # -- 3.3 议题时间轴：渲染/跳转/编辑/删除 --
+            page.wait_for_selector("#topic-timeline .topic-seg", timeout=8000)
+            segs = page.eval_on_selector_all("#topic-timeline .topic-seg", "els => els.length")
+            check("议题时间轴渲染", segs == 2, str(segs))
+            page.click("#topic-timeline .topic-seg")
+            page.wait_for_selector('#tab-raw.active', timeout=8000)
+            check("点议题段跳回原文", page.eval_on_selector(
+                "#tab-raw .transcript-line.active", "el => el.dataset.idx") == "0")
+            # 编辑态：改名保存
+            page.click("#topic-edit-btn")
+            page.click('#topic-timeline .topic-seg[data-i="0"]')
+            page.wait_for_selector("#topic-modal:not(.hidden)", timeout=8000)
+            page.fill("#topic-modal-name", "改名后的议题")
+            page.click("#topic-modal-save")
+            page.wait_for_function(
+                "() => document.querySelector('#topic-timeline') && document.querySelector('#topic-timeline').textContent.includes('改名后的议题')",
+                timeout=8000)
+            t = storage.load_topics(mid2)
+            check("议题编辑落库且标记 manual", t["manual"] is True and t["segments"][0]["topic"] == "改名后的议题",
+                  repr(t))
+            # 删除段（并入前段）
+            page.click('#topic-timeline .topic-seg[data-i="1"]')
+            page.wait_for_selector("#topic-modal:not(.hidden)", timeout=8000)
+            page.click("#topic-modal-delete")
+            page.wait_for_selector("#msg-modal:not(.hidden)", timeout=8000)
+            page.click("#msg-ok")
+            page.wait_for_function(
+                "() => document.querySelectorAll('#topic-timeline .topic-seg').length === 1", timeout=8000)
+            t = storage.load_topics(mid2)
+            check("删段后时间并入前段", len(t["segments"]) == 1 and t["segments"][0]["end"] == 5.5, repr(t["segments"]))
+
+            # -- v0.7 实时页：增强模式选择器已移除 --
+            page3 = browser.new_page()
+            page3.goto(f"{BASE}/live")
+            page3.wait_for_selector("#live-start", timeout=8000)
+            check("实时页无引擎选择器", page3.locator("#engine-picker").count() == 0)
+            check("实时页开始按钮可用", page3.locator("#live-start").is_enabled())
+            page3.close()
+
+            check("0.7 全程无 JS 错误", not page_errors, repr(page_errors))
+            storage.delete_meeting(mid2)
+            storage.delete_from_trash(mid2)
+
             # ===== home page: trash dialog =====
             storage.update_meta(mid, status="done", error=None)
             # trash the meeting via API, then restore it from the UI
@@ -181,8 +336,9 @@ def main() -> int:
             page2.click("#trash-btn")
             page2.wait_for_selector(".trash-item", timeout=8000)
             check("回收站弹窗列出已删会议", mid in page2.content())
-            page2.click('.trash-item [data-act="restore"]')
-            page2.wait_for_selector(".trash-item", state="detached", timeout=8000)
+            # 回收站可能残留历史测试会议，必须按 data-name 精确点这一条
+            page2.click(f'.trash-item[data-name="{mid}"] [data-act="restore"]')
+            page2.wait_for_selector(f'.trash-item[data-name="{mid}"]', state="detached", timeout=8000)
             items = json.loads(urllib.request.urlopen(f"{BASE}/api/trash").read())["items"]
             check("回收站恢复成功", all(i["name"] != mid for i in items))
             meetings = json.loads(urllib.request.urlopen(f"{BASE}/api/meetings").read())

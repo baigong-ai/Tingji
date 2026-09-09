@@ -5,13 +5,12 @@ let proc = null;
 let meetingId = null;
 let timerInterval = null;
 let startTime = 0;
-let currentEngine = "funasr";
-let engineReady = false;
 let stopFallbackTimer = null;  // B6: stop 后等不到 final 的兜底跳转
 
 const $ = (id) => document.getElementById(id);
 
 // escapeHtml 见 static/common.js
+// v0.7：增强模式（GPU sidecar）暂不提供，实时页只保留标准模式，引擎选择器已移除。
 
 function setStatus(msg) {
   $("live-status-line").textContent = msg;
@@ -27,108 +26,6 @@ function formatTimer(ms) {
 function updateTimer() {
   if (!startTime) return;
   $("live-timer").textContent = formatTimer(Date.now() - startTime);
-}
-
-async function fetchEngineInfo() {
-  try {
-    const r = await fetch("/api/realtime/info");
-    const info = await r.json();
-    currentEngine = info.current || "funasr";
-    const optStd = $("opt-standard");
-    const optEnh = $("opt-enhanced");
-    const hint = $("enhanced-hint");
-
-    optStd.classList.toggle("active", currentEngine === "funasr");
-    optEnh.classList.toggle("active", currentEngine === "sidecar");
-    optStd.querySelector(".engine-radio").textContent = currentEngine === "funasr" ? "●" : "○";
-    optEnh.querySelector(".engine-radio").textContent = currentEngine === "sidecar" ? "●" : "○";
-
-    if (!info.enhanced.available) {
-      optEnh.classList.add("disabled");
-      if (info.enhanced.reason === "coming_soon") {
-        hint.textContent = info.enhanced.message || "v0.6 提供";
-        hint.title = "增强模式将在 v0.6 中提供，当前版本请使用标准模式。";
-      } else {
-        hint.textContent = info.enhanced.message || "需要 NVIDIA 独显，当前环境不支持";
-        hint.title = "增强模式需要 WSL/Linux + NVIDIA 独显（8GB+ 显存），当前环境不满足，请使用标准模式。";
-      }
-      engineReady = currentEngine !== "sidecar";
-    } else if (!info.enhanced.ready) {
-      optEnh.classList.add("disabled");
-      hint.textContent = info.enhanced.message || "增强引擎服务未启动";
-      hint.title = "增强引擎 sidecar 未运行。在 WSL 中参考 docs/wsl-deploy.md 启动 Fun-ASR-Nano sidecar（默认 ws://localhost:10095）。";
-      engineReady = currentEngine !== "sidecar";
-    } else {
-      optEnh.classList.remove("disabled");
-      hint.textContent = "已就绪";
-      hint.title = "";
-      engineReady = true;
-    }
-
-    optStd.onclick = () => selectEngine("funasr");
-    optEnh.onclick = () => {
-      if (!optEnh.classList.contains("disabled")) selectEngine("sidecar");
-    };
-    // U2: 引擎选择键盘可达（div 模拟 radio）
-    [optStd, optEnh].forEach(opt => {
-      opt.setAttribute("tabindex", opt.classList.contains("disabled") ? "-1" : "0");
-      opt.setAttribute("role", "radio");
-      opt.setAttribute("aria-checked", opt.classList.contains("active") ? "true" : "false");
-      opt.addEventListener("keydown", e => {
-        if (e.key !== "Enter" && e.key !== " ") return;
-        if (opt.classList.contains("disabled")) return;
-        e.preventDefault();
-        opt.click();
-      });
-    });
-
-    const statusLine = $("live-status-line");
-    if (!engineReady && currentEngine === "sidecar") {
-      if (info.enhanced.reason === "no_gpu") {
-        statusLine.textContent = "增强模式需要 NVIDIA 独显，当前环境不支持，请切换到标准模式。";
-      } else {
-        statusLine.textContent = "增强引擎未就绪，请切换到标准模式或启动 sidecar 服务。";
-      }
-    } else if (statusLine.textContent.includes("增强引擎未就绪") || statusLine.textContent.includes("增强模式需要")) {
-      statusLine.textContent = "就绪，点击「开始」授权麦克风";
-    }
-
-    updateStartButton();
-  } catch (e) {
-    setStatus("无法获取引擎信息：" + e.message);
-    engineReady = false;
-    updateStartButton();
-  }
-}
-
-async function selectEngine(engine) {
-  try {
-    const r = await fetch("/api/settings/asr", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stream_engine: engine }),
-    });
-    if (!r.ok) throw new Error("保存失败");
-    currentEngine = engine;
-    $("opt-standard").classList.toggle("active", engine === "funasr");
-    $("opt-enhanced").classList.toggle("active", engine === "sidecar");
-    $("opt-standard").querySelector(".engine-radio").textContent = engine === "funasr" ? "●" : "○";
-    $("opt-enhanced").querySelector(".engine-radio").textContent = engine === "sidecar" ? "●" : "○";
-    await fetchEngineInfo();
-  } catch (e) {
-    setStatus("切换引擎失败：" + e.message);
-  }
-}
-
-function updateStartButton() {
-  const btn = $("live-start");
-  if (!engineReady) {
-    btn.disabled = true;
-    btn.title = currentEngine === "sidecar" ? "增强引擎未就绪，无法开始" : "";
-  } else {
-    btn.disabled = false;
-    btn.title = "";
-  }
 }
 
 function appendSentence(s) {
@@ -166,11 +63,6 @@ function clearPartial() {
 async function start() {
   if (!window.isSecureContext) {
     setStatus("当前地址不是安全上下文，浏览器不会授予麦克风权限。请使用 http://localhost:8000 访问，或在 config.yaml 中设置 server.ssl.enabled: true 后通过 HTTPS 访问。");
-    $("live-start").disabled = false;
-    return;
-  }
-  if (!engineReady) {
-    setStatus("当前选择的引擎未就绪，请切换到标准模式或启动增强引擎服务。");
     $("live-start").disabled = false;
     return;
   }
@@ -303,8 +195,5 @@ window.addEventListener("beforeunload", () => {
   cleanupAudio();
 });
 
-$("live-start").disabled = true;
 $("live-start").addEventListener("click", start);
 $("live-stop").addEventListener("click", stop);
-
-fetchEngineInfo();

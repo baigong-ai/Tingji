@@ -13,6 +13,9 @@ Built on [FunASR](https://github.com/modelscope/FunASR) (speech recognition + sp
 - **Automatic speaker diarization** — CAM++ voice clustering tells "who is speaking"; rename to real names, synced across all views and exports
 - **Speaker timeline** — a proportional bar at the top showing each speaker's share of talk time; click to jump to their first utterance, highlights the active speaker during playback
 - **Per-sentence timestamps** — click any sentence to seek the audio (without forcing playback); the current sentence auto-highlights and scrolls during playback
+- **Timestamped minutes (v0.7)** — decisions / action items / open questions can each carry an `[m:ss]` chip; click it to jump back to that exact moment in the audio. Polished-section headings carry the utterance start time too, and exported minutes keep the timestamps inline
+- **Personal notes layer (v0.7)** — hover any raw sentence and hit ✎ to attach your own note; notes are anchored to sentences and stored separately in `notes.json`, so re-running the polish never overwrites them. A "My notes" panel on the summary tab lists them chronologically with jump-to-sentence chips; unanchored global notes are supported too, and minutes export can append a Personal notes section
+- **Topic timeline (v0.7)** — a second timeline under the speaker bar splits the meeting into topic segments (background / question / discussion / conclusion / action / small-talk); click a segment to jump, playback highlights the current topic. The LLM proposes segments, humans can correct them (rename / rephase / adjust boundary / delete), and manual edits survive re-running the polish
 - **Raw ↔ polished compare** — side-by-side columns aligned by timestamp; hover highlights, click seeks, playback stays in sync
 - **Manual correction + hotwords** — double-click a sentence to fix recognition errors; optionally add it as a hotword to improve accuracy next time
 - **One-click polish** — turns colloquial raw text into fluent prose, then generates structured minutes (summary / decisions / action items / open questions); optionally pick a summary template and fill in meeting background + common terms first
@@ -21,7 +24,7 @@ Built on [FunASR](https://github.com/modelscope/FunASR) (speech recognition + sp
 - **Bring-your-own LLM** — local Ollama, or any OpenAI-compatible API (GLM / DeepSeek / Qwen / Kimi / OpenAI …)
 - **Configure everything in the browser** — data directory, LLM, hotwords, summary templates are all set via the web UI, no file editing
 - **Export** `.md` / `.txt` / `.srt` (md export uses real speaker names)
-- **Live streaming transcription** — open the microphone during a meeting; when stopped it writes the same raw transcript + audio as the upload flow, then goes through the same proofread → polish → summarize pipeline. v0.4 ships Standard mode (built-in engine, all platforms), and Enhanced mode (GPU engine, better for dialects / accents / far-field) is coming in v0.6
+- **Live streaming transcription** — open the microphone during a meeting; when stopped it writes the same raw transcript + audio as the upload flow, then goes through the same proofread → polish → summarize pipeline. Standard mode (built-in engine, all platforms). Enhanced mode (GPU engine) is shelved for now; the live page ships Standard mode only
 - **Meeting library management** — tag meetings and filter by tag, rename any finished meeting, delete to trash or permanently; the trash view can restore or permanently delete
 - **Edit the minutes afterwards** — both the polished text and the summary can be edited and saved (the summary supports per-section structured editing as well as plain markdown)
 - **Resume stuck tasks** — if a restart leaves a task stuck, click "Resume task" on the detail page; an optional hourly cron can do it automatically
@@ -40,6 +43,8 @@ Around a single recording, Tingji gives you four things:
 
 **Structured minutes in four parts.** The summary is split into Overview / Decisions / Action items / Open questions — clearer than a wall of Markdown. Falls back to plain text if the model doesn't return strict JSON; still usable.
 ![Summary tab](docs/screenshot-summary.png)
+
+**Minutes that lead back to the moment, notes that survive (v0.7).** Every decision and action item can carry an `[m:ss]` chip that seeks the audio to the exact sentence; hover a raw sentence and hit ✎ to jot a margin note stored separately from the AI output; a topic timeline above the transcript shows how the meeting unfolded (question → discussion → conclusion → action), each segment clickable.
 
 **Raw ↔ polished compare.** Side-by-side columns aligned by timestamp; hover highlights, click seeks, playback stays in sync. Quick to spot when the LLM has subtly changed the meaning.
 ![Compare tab](docs/screenshot-compare.png)
@@ -121,22 +126,30 @@ A watcher checks every 60 s, so worst case add ~60 s. In a hurry, hit "Release m
 
 Don't judge "did unload work" by macOS RSS — check the model-state field in Settings → Service, or the `FunASR models unloaded (idle)` log line.
 
-## Project status (v0.5)
+## Project status (v0.7)
 
-The core pipeline works: upload → recognition (with speaker diarization + timestamps) → proofread → one-click polish + structured minutes; the meeting library supports tags, rename, delete, and trash restore; live streaming transcription (standard mode) is available.
+The core pipeline works: upload → recognition (with speaker diarization + timestamps) → proofread → one-click polish + structured minutes (items timestamped) + topic timeline + personal notes; the meeting library supports tags, rename, delete, and trash restore; live streaming transcription (standard mode) is available.
+
+**New in v0.7 (the after-meeting layer: traceability, notes, topics)**:
+- **Timestamped minutes** — polished headings carry `[m:ss]` anchors; decisions / action items / open questions carry clickable timestamp chips that seek the audio; exports keep them inline. Items without timestamps (weak local models, older meetings) degrade gracefully
+- **Personal notes** — anchored margin notes on raw sentences plus unanchored global notes, stored in a separate `notes.json` that re-polish never touches; "My notes" panel with jump chips; minutes export can append a Personal notes section (`notes=false` to omit)
+- **Topic timeline** — LLM-proposed topic segments (background / question / discussion / conclusion / action / small-talk) with click-to-jump and playback highlight; manual rename / rephase / boundary / delete, and manual edits are protected from regeneration; long meetings are segmented per ~25-minute windows then merged
+- **Enhanced mode (GPU sidecar) shelved** — the live page no longer renders the engine picker; the backend still rejects `sidecar`
+
+**New in v0.6 (offline core)**: batch upload + queue, manual speaker merge/split (pure metadata remap), docx export for polished text and minutes, export options (speaker/timestamps on/off), proofreading aids (speed control + silence skip), pipeline unlock (parallel convert/polish across files), polish quality guards (echo detection / thinking toggle).
 
 **New in v0.5 (stability + trash + minutes editing)**:
 - **Trash management** — a Trash dialog on the home page lists deleted meetings with one-click restore and permanent delete (the v0.3 "recoverable" promise now has a UI)
 - **Edit the minutes** — both the polished text and the summary can be edited and saved; the summary supports per-section editing (overview / decisions / action items / open questions) as well as plain markdown
 - **Resume stuck tasks** — a "Resume task" button on the detail page; `scripts/resume_tasks.py` runs as an hourly cron and reads port / SSL / data dir from config.yaml
 - **Stability fixes** — a bug where retried tasks stayed "queued" forever (and blocked idle model unload), the punctuation model stalling all HTTP during live sessions, stuck status after interrupted polish, atomic + fault-tolerant `meta.json` writes, meeting_id path-traversal hardening
-- **Security** — speaker-name injection XSS fixed; Enhanced mode (GPU sidecar) moved to **v0.6**, now also rejected server-side
+- **Security** — speaker-name injection XSS fixed; Enhanced mode (GPU sidecar) rejected server-side (later shelved, see v0.7)
 
 **New in v0.4 (live streaming transcription)**:
 - **Live streaming transcription** — open the microphone during a meeting; when stopped it automatically writes `audio_live.wav` + `raw.json` and enters the "Ready to polish" state, after which the proofread / polish / summarize flow is identical to the upload path
 - **Standard mode** — built-in FunASR streaming engine (`paraformer-zh-streaming`); works on macOS / WSL / Linux with no extra setup
-- **Enhanced mode (coming in v0.6)** — will forward audio to a Fun-ASR-Nano vLLM GPU sidecar (`ws://localhost:10095`) for better accuracy on dialects, accents, and far-field audio; available only on WSL/Linux + NVIDIA dGPU; the UI greys it out with a "v0.6" hint
-- **Unified entry point** — "Live" tab on the home page; the live page lets you switch engines (Enhanced is currently preview-only and cannot be selected)
+- **Enhanced mode (GPU engine)** — was planned to forward audio to a Fun-ASR-Nano vLLM GPU sidecar (`ws://localhost:10095`) for better accuracy on dialects, accents, and far-field audio; shelved as of v0.7 (implementation kept in `app/stream.py`)
+- **Unified entry point** — "Live" tab on the home page
 
 **v0.3 done (meeting library)**:
 - **Tags + filter** — add multiple tags to a meeting, filter the list by tag (multi-select union); click a tag chip on a row to filter too
@@ -148,22 +161,20 @@ The core pipeline works: upload → recognition (with speaker diarization + time
 
 **v0.1 done**: speaker timeline, structured minutes (summary / decisions / action items / open questions as JSON), summary templates (preset + custom), pre-polish meeting background + common terms, speaker rename synced across views and exports, md / txt / srt export, live log, fixed layout.
 
-**Not yet**: manual speaker merge/split, docx export, export options (with/without speaker or timestamps), agenda chapter splitting.
+**Not yet**: meeting-content Q&A, component-based minutes (tables / columns / process bars), static HTML page export.
 
 ## Live transcription
 
 In addition to "upload a recording then process it", Tingji supports live microphone transcription during meetings. When stopped, it writes the same raw transcript + audio as the upload flow, then goes through the same proofread → polish → summarize pipeline.
 
-Two modes target different hardware:
+One engine ships today:
 
 | Mode | Name | Platforms | Hardware requirements |
 |---|---|---|---|
 | **Standard** | Built-in realtime engine | macOS / WSL / Linux | Apple Silicon M1+ or modern CPU, 8GB+ RAM |
-| **Enhanced** | GPU realtime engine | WSL/Linux + NVIDIA dGPU only (coming in v0.6) | NVIDIA dGPU with 8GB+ VRAM (12GB+ recommended) |
 
 - **Standard mode** is the default and works on every platform without extra setup.
-- **Enhanced mode** is for harder scenarios — dialects, accents, far-field — with higher accuracy; it is currently greyed out in the UI with a "v0.6" hint and cannot be selected.
-- Once Enhanced mode ships, it will require a separate GPU sidecar service (`ws://localhost:10095`) on the same WSL/Linux machine. Switch by setting `asr.stream_engine: sidecar` and `asr.sidecar_url` in `config.yaml`. Deployment instructions will be updated in the [WSL deployment guide](docs/wsl-deploy.en.md).
+- **Enhanced mode** (GPU engine, for dialects / accents / far-field) is shelved: it needs a separate Fun-ASR-Nano vLLM GPU sidecar (`ws://localhost:10095`, WSL/Linux + NVIDIA dGPU only), a heavy deployment. As of v0.7 the live page no longer renders the engine picker and the backend rejects `sidecar`. The implementation is kept in `app/stream.py` and may return someday.
 
 ### HTTPS for LAN access (live mic)
 
@@ -288,9 +299,9 @@ app/
   config.py   config loading (${ENV_VAR} expansion)
   audio.py    ffmpeg conversion
   asr.py      FunASR AutoModel wrapper (GPU-first)
-  stream.py   realtime streaming engines (standard funasr / enhanced sidecar)
+  stream.py   realtime streaming engine (standard funasr; enhanced sidecar kept but shelved)
   llm.py      polish + summarize (chunking + map-reduce)
-  storage.py  data/ directory CRUD
+  storage.py  data/ directory CRUD (meetings / notes / topics / templates / logs)
   tasks.py    async pipeline + progress
   main.py     FastAPI routes
   dns_hosts.py optional DNS override (active when dns_hosts.txt exists)

@@ -11,7 +11,9 @@ import socket
 import subprocess
 import time
 import urllib.request
+import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -55,7 +57,7 @@ STATIC_DIR = BASE_DIR / "static"
 
 # Active pipeline statuses — idle watcher won't unload while any is in flight.
 _BUSY_STATUSES = {"pending", "converting", "asr_running", "live_recording",
-                  "llm_polishing", "llm_summarizing"}
+                  "llm_polishing", "llm_summarizing", "llm_topics"}
 
 
 def _idle_unload_seconds() -> int:
@@ -758,9 +760,11 @@ async def export(
     format: str = "md",
     speakers: bool = True,
     timestamps: bool = True,
+    notes: bool = True,
 ):
     """Export a meeting. Formats: md/txt/srt (原文系) + docx (整理版) +
-    minutes / minutes_docx (纪要). txt/srt 支持 speakers=/timestamps= 关闭说话人/时间戳。"""
+    minutes / minutes_docx (纪要). txt/srt 支持 speakers=/timestamps= 关闭说话人/时间戳；
+    minutes 系支持 notes=false 去掉「个人笔记」一节。"""
     data = storage.get_meeting(meeting_id)
     if data is None:
         raise HTTPException(404)
@@ -800,7 +804,7 @@ async def export(
                         headers={"Content-Disposition": f'attachment; filename="export.docx"'})
 
     if format in ("minutes", "minutes_docx"):
-        md_text = _minutes_md(data, names)
+        md_text = _minutes_md(data, names, include_notes=notes)
         if not md_text.strip("#").strip():
             raise HTTPException(400, "会议尚无纪要，请先「开始整理」生成总结")
         if format == "minutes":
@@ -853,7 +857,7 @@ async def resume_meeting(meeting_id: str, background_tasks: BackgroundTasks):
         background_tasks.add_task(tasks.run_pipeline, meeting_id, config, state["task_id"])
         return {"ok": True, "action": "run_pipeline", "task_id": state["task_id"], "status": status}
 
-    if status in {"llm_polishing", "llm_summarizing"}:
+    if status in {"llm_polishing", "llm_summarizing", "llm_topics"}:
         task_id = _start_retry_llm(background_tasks, meeting_id)
         return {"ok": True, "action": "retry_llm", "task_id": task_id, "status": status}
 
@@ -1154,12 +1158,8 @@ async def edit_summary(meeting_id: str, payload: dict):
         raise HTTPException(404)
     sj = payload.get("summary_json")
     if isinstance(sj, dict):
-        cleaned = {
-            "summary": str(sj.get("summary") or ""),
-            "decisions": [str(x) for x in sj.get("decisions") or [] if str(x).strip()],
-            "action_items": [str(x) for x in sj.get("action_items") or [] if str(x).strip()],
-            "open_questions": [str(x) for x in sj.get("open_questions") or [] if str(x).strip()],
-        }
+        # 与 LLM 输出同一条规范化路径：字符串条目与 {text, ts} 对象都合法
+        cleaned = llm.clean_summary_json(sj)
         if not any([cleaned["summary"], cleaned["decisions"], cleaned["action_items"], cleaned["open_questions"]]):
             raise HTTPException(400, "总结内容不能为空")
         storage.save_summary_json(meeting_id, cleaned)
@@ -1173,6 +1173,142 @@ async def edit_summary(meeting_id: str, payload: dict):
     # summary tab falls back to rendering this markdown.
     storage.save_summary_json(meeting_id, None)
     return {"ok": True, "structured": False}
+
+
+# --- v0.7 个人笔记层（3.2）: 独立存储，重新整理不覆盖 -------------------------
+
+def _validate_note_payload(payload: dict, data: dict) -> tuple[str, dict | None]:
+    text = (payload.get("text") or "").strip()
+    if not text:
+        raise HTTPException(400, "笔记内容不能为空")
+    if len(text) > 2000:
+        raise HTTPException(400, "笔记内容过长（最多 2000 字）")
+    anchor = payload.get("anchor")
+    if anchor is not None:
+        if not isinstance(anchor, dict) or anchor.get("type") != "sentence":
+            raise HTTPException(400, "anchor 需为 {type: 'sentence', idx: 整数}")
+        idx = anchor.get("idx")
+        if isinstance(idx, bool) or not isinstance(idx, int):
+            raise HTTPException(400, "anchor.idx 需为整数")
+        sentences = (data.get("raw") or {}).get("sentences") or []
+        if idx < 0 or idx >= len(sentences):
+            raise HTTPException(400, "anchor.idx 超出原句范围")
+        anchor = {"type": "sentence", "idx": idx}
+    return text, anchor
+
+
+@app.get("/api/meetings/{meeting_id}/notes")
+async def get_notes(meeting_id: str):
+    if storage.get_meeting(meeting_id) is None:
+        raise HTTPException(404)
+    return {"notes": storage.load_notes(meeting_id)}
+
+
+@app.post("/api/meetings/{meeting_id}/notes")
+async def create_note(meeting_id: str, payload: dict):
+    data = storage.get_meeting(meeting_id)
+    if data is None:
+        raise HTTPException(404)
+    text, anchor = _validate_note_payload(payload, data)
+    now = datetime.now().isoformat(timespec="seconds")
+    note = {"id": uuid.uuid4().hex[:12], "anchor": anchor, "text": text,
+            "created_at": now, "updated_at": now}
+    notes = storage.load_notes(meeting_id)
+    notes.append(note)
+    storage.save_notes(meeting_id, notes)
+    return {"ok": True, "note": note}
+
+
+@app.put("/api/meetings/{meeting_id}/notes/{note_id}")
+async def update_note(meeting_id: str, note_id: str, payload: dict):
+    data = storage.get_meeting(meeting_id)
+    if data is None:
+        raise HTTPException(404)
+    notes = storage.load_notes(meeting_id)
+    note = next((n for n in notes if n.get("id") == note_id), None)
+    if note is None:
+        raise HTTPException(404, "笔记不存在")
+    text, anchor = _validate_note_payload(payload, data)
+    note["text"] = text
+    # 锚点不传则保持原值（编辑场景通常只改文字）
+    if anchor is not None or "anchor" in payload:
+        note["anchor"] = anchor
+    note["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    storage.save_notes(meeting_id, notes)
+    return {"ok": True, "note": note}
+
+
+@app.delete("/api/meetings/{meeting_id}/notes/{note_id}")
+async def delete_note(meeting_id: str, note_id: str):
+    if storage.get_meeting(meeting_id) is None:
+        raise HTTPException(404)
+    notes = storage.load_notes(meeting_id)
+    remaining = [n for n in notes if n.get("id") != note_id]
+    if len(remaining) == len(notes):
+        raise HTTPException(404, "笔记不存在")
+    storage.save_notes(meeting_id, remaining)
+    return {"ok": True}
+
+
+# --- v0.7 议题时间轴（3.3）: LLM 给初值，人可校正，手动修改不被覆盖 ----------
+
+@app.get("/api/meetings/{meeting_id}/topics")
+async def get_topics(meeting_id: str):
+    if storage.get_meeting(meeting_id) is None:
+        raise HTTPException(404)
+    return storage.load_topics(meeting_id) or {"segments": [], "manual": False}
+
+
+@app.put("/api/meetings/{meeting_id}/topics")
+async def put_topics(meeting_id: str, payload: dict):
+    """手动保存议题分段（改名/改阶段/调边界/删段后整表回传）。落盘即标记 manual，
+    之后重新整理不会再自动覆盖。"""
+    if storage.get_meeting(meeting_id) is None:
+        raise HTTPException(404)
+    raw = payload.get("segments")
+    if not isinstance(raw, list) or not raw:
+        raise HTTPException(400, "segments 需为非空数组")
+    data = storage.get_meeting(meeting_id)
+    sentences = (data.get("raw") or {}).get("sentences") or []
+    duration_s = max((s.get("end") or s.get("start") or 0) for s in sentences) / 1000 if sentences else 0
+    cleaned = []
+    for s in raw:
+        if not isinstance(s, dict):
+            continue
+        topic = str(s.get("topic") or "").strip()[:40]
+        try:
+            st, en = float(s.get("start")), float(s.get("end"))
+        except (TypeError, ValueError):
+            continue
+        if not topic or en - st < 1:
+            continue
+        if duration_s > 0:
+            st, en = max(0.0, st), min(en, duration_s)
+        phase = s.get("phase") if s.get("phase") in llm.TOPIC_PHASES else "讨论"
+        cleaned.append({"topic": topic, "start": round(st, 1), "end": round(en, 1), "phase": phase})
+    if not cleaned:
+        raise HTTPException(400, "没有合法的议题段")
+    cleaned.sort(key=lambda x: x["start"])
+    existing = storage.load_topics(meeting_id) or {}
+    out = {"segments": cleaned, "manual": True,
+           "generated_at": existing.get("generated_at") or datetime.now().isoformat(timespec="seconds")}
+    storage.save_topics(meeting_id, out)
+    return {"ok": True, "topics": out}
+
+
+@app.post("/api/meetings/{meeting_id}/topics/generate")
+async def generate_topics_handler(meeting_id: str, background_tasks: BackgroundTasks, force: bool = False):
+    data = storage.get_meeting(meeting_id)
+    if data is None:
+        raise HTTPException(404)
+    if not ((data.get("raw") or {}).get("sentences") or []):
+        raise HTTPException(400, "尚无识别结果，无法生成议题时间轴")
+    existing = storage.load_topics(meeting_id)
+    if existing and existing.get("manual") and not force:
+        raise HTTPException(409, "议题时间轴已被手动编辑，重新生成会覆盖手动修改（可带 force=1 确认）")
+    state = tasks.register_task(meeting_id)
+    background_tasks.add_task(tasks.generate_topics, meeting_id, config, state["task_id"], force)
+    return {"task_id": state["task_id"]}
 
 
 def _fmt_ts(ms: int) -> str:
@@ -1233,9 +1369,10 @@ def _apply_speaker_names_to_md(md: str, names: dict) -> str:
     return re.sub(r"说话人\s*(\d+)", lambda m: _spk_label(int(m.group(1)), names), md)
 
 
-def _minutes_md(data: dict, names: dict) -> str:
+def _minutes_md(data: dict, names: dict, include_notes: bool = True) -> str:
     """Export the structured minutes (纪要) as standalone markdown. Prefers the
-    structured summary_json (概述/决议/待办/待讨论); falls back to summary.md."""
+    structured summary_json (概述/决议/待办/待讨论, 条目可带 [m:ss] 时间戳);
+    falls back to summary.md. 可选在末尾附「个人笔记」一节（锚定句带时间戳）。"""
     sj = data.get("summary_json")
     if sj:
         md = llm.summary_to_md(sj)
@@ -1243,7 +1380,21 @@ def _minutes_md(data: dict, names: dict) -> str:
         md = data.get("summary") or ""
     md = _apply_speaker_names_to_md(md, names)
     title = (data.get("meta") or {}).get("title") or "会议纪要"
-    return f"# {title}\n\n{md}".rstrip() + "\n"
+    md = f"# {title}\n\n{md}".rstrip()
+    if include_notes:
+        meeting_id = (data.get("meta") or {}).get("id") or ""
+        note_list = storage.load_notes(meeting_id) if meeting_id else []
+        if note_list:
+            sentences = (data.get("raw") or {}).get("sentences") or []
+            lines = []
+            for n in sorted(note_list, key=lambda x: x.get("created_at", "")):
+                ts = ""
+                a = n.get("anchor") or {}
+                if a.get("type") == "sentence" and 0 <= a.get("idx", -1) < len(sentences):
+                    ts = f"[{llm.fmt_clock(sentences[a['idx']]['start'] / 1000)}] "
+                lines.append(f"- {ts}{n.get('text', '')}")
+            md += "\n\n## 个人笔记\n\n" + "\n".join(lines)
+    return md.rstrip() + "\n"
 
 
 def _md_to_docx_bytes(md_text: str, title: str) -> bytes:
@@ -1377,9 +1528,9 @@ async def realtime_ws(ws: WebSocket, meeting_id: str):
 async def realtime_info():
     """Return availability of standard vs enhanced realtime engines.
 
-    Enhanced mode is deferred to v0.6 while the sidecar deployment and
-    end-to-end validation are finalized. For v0.4 only standard mode is
-    exposed in the UI.
+    Enhanced mode (GPU sidecar) is shelved for now: it needs WSL/Linux + NVIDIA
+    GPU + a separate vLLM sidecar, too heavy for the product's local-first
+    positioning. The frontend no longer renders the enhanced option (v0.7).
     """
     standard_ready = True
     has_gpu = False
@@ -1393,9 +1544,9 @@ async def realtime_info():
         "enhanced": {
             "available": False,
             "ready": False,
-            "reason": "coming_soon",
+            "reason": "not_available",
             "has_gpu": has_gpu,
-            "message": "v0.6 提供",
+            "message": "暂不提供",
         },
         "current": "funasr",
     }
@@ -1411,9 +1562,9 @@ async def set_asr_settings(payload: dict):
         if engine not in ("funasr", "sidecar"):
             raise HTTPException(400, "stream_engine must be funasr or sidecar")
         if engine == "sidecar":
-            # Enhanced mode ships in v0.6 — the frontend greys it out, and the
-            # backend must enforce the same gate (don't allow selecting it).
-            raise HTTPException(400, "增强模式（GPU sidecar）将在 v0.6 提供，当前不可用")
+            # Enhanced mode is shelved; frontend doesn't render the option and
+            # the backend enforces the same gate for direct API calls.
+            raise HTTPException(400, "增强模式（GPU sidecar）暂不提供，请使用标准模式")
         config.asr.stream_engine = engine
     if "stream_language" in payload:
         config.asr.stream_language = str(payload["stream_language"])

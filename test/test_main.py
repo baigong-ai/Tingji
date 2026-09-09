@@ -494,7 +494,8 @@ def test_edit_summary_structured_and_markdown(client):
     r = client.put(f"/api/meetings/{mid}/summary", json={"summary_json": sj})
     assert r.status_code == 200 and r.json()["structured"] is True
     data = storage.get_meeting(mid)
-    assert data["summary_json"]["decisions"] == ["d1"]
+    # v0.7: 手动编辑与 LLM 输出同一条规范化路径，字符串条目统一成 {text} 对象
+    assert data["summary_json"]["decisions"] == [{"text": "d1"}]
     assert "概述" in data["summary"] and "d1" in data["summary"]
     # manual markdown edit drops the structured form
     r = client.put(f"/api/meetings/{mid}/summary", json={"text": "## 手动总结"})
@@ -716,3 +717,148 @@ def test_idle_watcher_loop_unloads(client, monkeypatch):
             pass
     _a.run(go())
     assert not main.asr.is_loaded(), "watcher should have unloaded the model"
+
+
+# --- v0.7: 个人笔记层（3.2） --------------------------------------------------
+
+def _upload_with_raw(client):
+    """上传会议并直接落一份 raw.json（议题/笔记测试的地基）。"""
+    mid = _upload(client)
+    storage.save_raw(mid, {"text": "大家好 开始开会", "sentences": [
+        {"text": "大家好", "start": 0, "end": 2000, "spk": 0},
+        {"text": "开始开会", "start": 3000, "end": 5000, "spk": 1},
+    ], "spk_count": 2})
+    storage.update_meta(mid, duration_ms=5000)
+    return mid
+
+
+def test_notes_crud_roundtrip(client):
+    mid = _upload_with_raw(client)
+    assert client.get(f"/api/meetings/{mid}/notes").json()["notes"] == []
+    r = client.post(f"/api/meetings/{mid}/notes",
+                    json={"text": "漏了预算约束", "anchor": {"type": "sentence", "idx": 1}})
+    assert r.status_code == 200
+    note = r.json()["note"]
+    assert note["anchor"] == {"type": "sentence", "idx": 1}
+    assert note["id"] and note["created_at"]
+    # 自由笔记（无锚点）
+    r2 = client.post(f"/api/meetings/{mid}/notes", json={"text": "全局想法"})
+    assert r2.status_code == 200 and r2.json()["note"]["anchor"] is None
+    # 校验：空文本 / 超长 / 锚点越界都要 400
+    assert client.post(f"/api/meetings/{mid}/notes", json={"text": "  "}).status_code == 400
+    assert client.post(f"/api/meetings/{mid}/notes", json={"text": "x" * 2001}).status_code == 400
+    assert client.post(f"/api/meetings/{mid}/notes",
+                       json={"text": "x", "anchor": {"type": "sentence", "idx": 99}}).status_code == 400
+    assert client.post(f"/api/meetings/{mid}/notes",
+                       json={"text": "x", "anchor": {"type": "global"}}).status_code == 400
+    # 更新 / 404
+    r3 = client.put(f"/api/meetings/{mid}/notes/{note['id']}", json={"text": "改后"})
+    assert r3.status_code == 200 and r3.json()["note"]["text"] == "改后"
+    assert client.put(f"/api/meetings/{mid}/notes/nope", json={"text": "x"}).status_code == 404
+    # 删除 / 404
+    assert client.delete(f"/api/meetings/{mid}/notes/{note['id']}").status_code == 200
+    assert client.delete(f"/api/meetings/{mid}/notes/{note['id']}").status_code == 404
+    notes = client.get(f"/api/meetings/{mid}/notes").json()["notes"]
+    assert len(notes) == 1 and notes[0]["text"] == "全局想法"
+
+
+def test_export_minutes_includes_notes_section(client):
+    mid = _upload_with_raw(client)
+    storage.save_summary_json(mid, {"summary": "s", "decisions": [], "action_items": [], "open_questions": []})
+    client.post(f"/api/meetings/{mid}/notes",
+                json={"text": "预算要补问", "anchor": {"type": "sentence", "idx": 0}})
+    md = client.get(f"/api/meetings/{mid}/export?format=minutes").text
+    assert "## 个人笔记" in md
+    assert "[0:00] 预算要补问" in md
+    # notes=false 可去掉笔记节
+    md2 = client.get(f"/api/meetings/{mid}/export?format=minutes&notes=false").text
+    assert "个人笔记" not in md2
+
+
+def test_export_minutes_inlines_item_timestamps(client):
+    mid = _upload(client)
+    storage.save_summary_json(mid, {
+        "summary": "概述",
+        "decisions": [{"text": "定了方案B", "ts": [754.0]}],
+        "action_items": [{"text": "张三跟进", "ts": [300.0]}],
+        "open_questions": [],
+    })
+    md = client.get(f"/api/meetings/{mid}/export?format=minutes").text
+    assert "定了方案B [12:34]" in md
+    assert "张三跟进 [5:00]" in md
+
+
+# --- v0.7: 议题时间轴（3.3） --------------------------------------------------
+
+def test_topics_get_put_and_manual_protection(client, monkeypatch):
+    mid = _upload_with_raw(client)
+    assert client.get(f"/api/meetings/{mid}/topics").json()["segments"] == []
+    segs = [
+        {"topic": "需求确认", "start": 0, "end": 3, "phase": "讨论"},
+        {"topic": "收尾", "start": 3, "end": 5, "phase": "结论"},
+    ]
+    r = client.put(f"/api/meetings/{mid}/topics", json={"segments": segs})
+    assert r.status_code == 200
+    body = r.json()["topics"]
+    assert body["manual"] is True  # 手动保存后标记，重整理不自动覆盖
+    assert body["segments"][0]["start"] == 0.0 and body["segments"][1]["start"] == 3.0
+    # 非法 phase 归为「讨论」；非法段剔除；空数组 400
+    r = client.put(f"/api/meetings/{mid}/topics",
+                   json={"segments": [{"topic": "x", "start": 0, "end": 4, "phase": "自定义阶段"}]})
+    assert r.json()["topics"]["segments"][0]["phase"] == "讨论"
+    assert client.put(f"/api/meetings/{mid}/topics",
+                      json={"segments": [{"topic": "", "start": 0, "end": 4}]}).status_code == 400
+    assert client.put(f"/api/meetings/{mid}/topics", json={"segments": []}).status_code == 400
+    # manual 之后自动生成被 409 拦
+    assert client.post(f"/api/meetings/{mid}/topics/generate").status_code == 409
+
+
+def test_topics_generate_flow(client, monkeypatch):
+    mid = _upload_with_raw(client)
+    monkeypatch.setattr(main.llm, "segment_topics",
+                        lambda s, cfg, on_log=None: [{"topic": "自动议题", "start": 0, "end": 5, "phase": "讨论"}])
+    r = client.post(f"/api/meetings/{mid}/topics/generate")
+    assert r.status_code == 200
+    # TestClient 同步执行 BackgroundTasks
+    t = storage.load_topics(mid)
+    assert t["manual"] is False
+    assert t["segments"][0]["topic"] == "自动议题"
+    assert t["generated_at"]
+    # 单独生成不改变会议终态（上传 fixture 直接 done）
+    assert storage.get_meeting(mid)["meta"]["status"] == "done"
+
+
+def test_topics_force_regenerate_overrides_manual(client, monkeypatch):
+    """force=1 必须真的覆盖手动分段（API 层放行 + _run_topics 接受 force）。"""
+    mid = _upload_with_raw(client)
+    storage.save_topics(mid, {"segments": [{"topic": "手动的", "start": 0, "end": 5, "phase": "讨论"}],
+                              "manual": True})
+    monkeypatch.setattr(main.llm, "segment_topics",
+                        lambda s, cfg, on_log=None: [{"topic": "强制重生成", "start": 0, "end": 5, "phase": "讨论"}])
+    r = client.post(f"/api/meetings/{mid}/topics/generate?force=1")
+    assert r.status_code == 200
+    t = storage.load_topics(mid)
+    assert t["manual"] is False  # 自动重生成后回到受托管状态
+    assert t["segments"][0]["topic"] == "强制重生成"
+
+
+def test_topics_generate_requires_raw(client):
+    mid = _upload(client)  # 没有 raw.json
+    assert client.post(f"/api/meetings/{mid}/topics/generate").status_code == 400
+
+
+# --- v0.7: 增强模式暂不提供（前端已隐藏，后端仍守门） --------------------------
+
+def test_realtime_info_marks_enhanced_unavailable(client):
+    info = client.get("/api/realtime/info").json()
+    assert info["enhanced"]["available"] is False
+    assert info["enhanced"]["reason"] == "not_available"
+    assert info["current"] == "funasr"
+
+
+def test_asr_settings_still_rejects_sidecar(client, monkeypatch):
+    monkeypatch.setattr(main, "_persist_asr_config", lambda: None)
+    r = client.post("/api/settings/asr", json={"stream_engine": "sidecar"})
+    assert r.status_code == 400
+    assert "暂不提供" in r.json()["detail"]
+    assert client.post("/api/settings/asr", json={"stream_engine": "funasr"}).status_code == 200

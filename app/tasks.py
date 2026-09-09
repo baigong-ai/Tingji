@@ -1,6 +1,7 @@
 import asyncio
 import time
 import uuid
+from datetime import datetime
 from typing import Optional
 
 from app import asr, audio, llm, storage
@@ -22,8 +23,9 @@ CONVERT_END = 5
 ASR_FAKE_END = 50
 ASR_REAL_END = 55
 POLISH_START = 55
-POLISH_END = 85
-SUMMARY_END = 100
+POLISH_END = 80
+SUMMARY_END = 94
+TOPICS_END = 100
 
 # B10: 进度条 ETA 用的 ASR 实时率（每秒音频耗多少秒识别）。写死 0.25 是 GPU 实测值，
 # 在 CPU/Mac 上严重低估（实测 RTF≈4.7），进度条会"假完成"。按 device 给不同 RTF。
@@ -310,6 +312,38 @@ async def _run_summarize(task_id, meeting_id, cfg) -> None:
     update(task_id, progress=SUMMARY_END)
 
 
+async def _run_topics(task_id, meeting_id, cfg, force: bool = False) -> None:
+    """3.3 议题时间轴：整理流程的收尾阶段（也可单独触发）。挂在 summarize 之后、
+    非交互等待；失败只记 warn 不影响纪要与 done 状态。用户手动编辑过（manual）
+    则跳过，除非显式 force（详情页「重新生成」确认覆盖）。"""
+    data = storage.get_meeting(meeting_id)
+    if not data:
+        return
+    sentences = (data.get("raw") or {}).get("sentences") or []
+    if not sentences:
+        return
+    existing = storage.load_topics(meeting_id)
+    if existing and existing.get("manual") and not force:
+        append_log(meeting_id, "info", "议题时间轴已有手动修改，跳过自动生成（如需覆盖请在详情页点「重新生成」）")
+        return
+    storage.update_meta(meeting_id, status="llm_topics")
+    update(task_id, status="llm_topics", step="生成议题时间轴", progress=SUMMARY_END)
+    loop = asyncio.get_running_loop()
+    t0 = time.time()
+    segs = await loop.run_in_executor(None, llm.segment_topics, sentences, cfg.llm, _log_cb(meeting_id))
+    _record_timing(meeting_id, "topics", time.time() - t0)
+    if segs:
+        storage.save_topics(meeting_id, {
+            "segments": segs, "manual": False,
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+        })
+        append_log(meeting_id, "info", f"议题时间轴生成完成：共 {len(segs)} 段议题")
+        update(task_id, progress=TOPICS_END)
+    else:
+        append_log(meeting_id, "warn", "议题时间轴生成失败（模型未返回有效分段），可在详情页重试或手动编辑")
+        update(task_id, progress=TOPICS_END)
+
+
 async def retry_llm(meeting_id: str, cfg, task_id: Optional[str] = None) -> str:
     if task_id is None:
         task_id = register_task(meeting_id)["task_id"]
@@ -317,12 +351,36 @@ async def retry_llm(meeting_id: str, cfg, task_id: Optional[str] = None) -> str:
     try:
         await _run_polish(task_id, meeting_id, cfg)
         await _run_summarize(task_id, meeting_id, cfg)
+        try:
+            await _run_topics(task_id, meeting_id, cfg)
+        except Exception as e:
+            # 议题分段是渐进增强：失败不拖垮整理结果
+            append_log(meeting_id, "warn", f"议题时间轴生成出错（不影响纪要）：{e}")
+            update(task_id, progress=TOPICS_END)
         storage.update_meta(meeting_id, status="done", error=None)
         update(task_id, status="done", progress=100, step="完成")
         _log_stage_summary(meeting_id, "整理完成",
                            ("convert", "转换"), ("asr", "识别"), ("polish", "整理"), ("summarize", "总结"))
     except Exception as e:
         storage.update_meta(meeting_id, status="error", error=str(e))
+        update(task_id, status="error", error=str(e))
+    return task_id
+
+
+async def generate_topics(meeting_id: str, cfg, task_id: Optional[str] = None, force: bool = False) -> str:
+    """单独触发议题生成（详情页「生成议题时间轴 / 重新生成」）。
+    不改变会议本身的终态：跑完恢复原 status，失败只标记 task。"""
+    if task_id is None:
+        task_id = register_task(meeting_id)["task_id"]
+    data = storage.get_meeting(meeting_id)
+    prev_status = (data.get("meta") or {}).get("status") if data else None
+    restore = prev_status if prev_status in ("done", "asr_done") else "done"
+    try:
+        await _run_topics(task_id, meeting_id, cfg, force=force)
+        storage.update_meta(meeting_id, status=restore, error=None)
+        update(task_id, status="done", progress=100, step="完成")
+    except Exception as e:
+        storage.update_meta(meeting_id, status=restore, error=None)
         update(task_id, status="error", error=str(e))
     return task_id
 

@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title id="m-page-title">会议 · 听记</title>
-  <link rel="stylesheet" href="/static/style.css?v=16">
-  <link rel="stylesheet" href="/static/meeting.css?v=19">
+  <link rel="stylesheet" href="/static/style.css?v=17">
+  <link rel="stylesheet" href="/static/meeting.css?v=21">
 </head>
 <body>
   <header>
@@ -48,6 +48,17 @@
         <span id="merge-hint" class="merge-hint hidden"></span>
       </div>
       <div id="speaker-timeline" class="speaker-timeline" aria-label="发言人发言时长分布，点击定位"></div>
+      <div id="topic-timeline-wrap" class="topic-timeline-wrap hidden">
+        <div class="topic-head">
+          <span class="topic-label">议题</span>
+          <span id="topic-tools" class="topic-tools hidden">
+            <button id="topic-edit-btn" class="mini" type="button">编辑</button>
+            <button id="topic-regen-btn" class="mini" type="button">重新生成</button>
+          </span>
+          <button id="topic-generate-btn" class="mini hidden" type="button">生成议题时间轴</button>
+        </div>
+        <div id="topic-timeline" class="topic-timeline" aria-label="议题时间轴，点击定位到该议题开头"></div>
+      </div>
       <div id="polish-warning" class="polish-warning hidden" role="alert"></div>
     </div>
 
@@ -80,6 +91,16 @@
         <div id="processed-md" class="rendered-md"></div>
       </div>
       <div id="tab-summary" class="panel" role="tabpanel">
+        <div id="notes-section" class="notes-section hidden">
+          <div class="notes-head">
+            <button id="notes-toggle" type="button" class="notes-toggle" aria-expanded="false">
+              <span class="notes-caret" aria-hidden="true">▸</span>
+              我的笔记 <span id="notes-count" class="notes-count"></span>
+            </button>
+            <button id="note-add-free" class="mini" type="button">＋ 写笔记</button>
+          </div>
+          <div id="notes-list" class="notes-list hidden"></div>
+        </div>
         <div id="sum-tools" class="md-tools hidden"><button id="sum-edit-btn" class="mini" type="button">编辑</button></div>
         <div id="summary-md" class="rendered-md"></div>
       </div>
@@ -153,6 +174,39 @@
     </div>
   </div>
 
+  <div id="note-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <h3 id="note-modal-title">写笔记</h3>
+      <p class="hint" id="note-modal-anchor"></p>
+      <textarea id="note-text" rows="5" maxlength="2000" style="width:100%;box-sizing:border-box" aria-label="笔记内容"></textarea>
+      <div id="note-hint" class="settings-result"></div>
+      <div class="modal-actions">
+        <button id="note-delete" type="button" class="danger hidden">删除笔记</button>
+        <span class="modal-spacer"></span>
+        <button id="note-cancel" type="button">取消</button>
+        <button id="note-save" type="button" class="primary">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="topic-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <h3>编辑议题段</h3>
+      <label class="template-label" style="display:block">议题名 <input id="topic-modal-name" type="text" maxlength="40" style="width:100%;box-sizing:border-box;margin-top:6px"></label>
+      <label class="template-label" style="display:block;margin-top:12px">阶段 <select id="topic-modal-phase" aria-label="阶段"></select></label>
+      <label class="template-label" style="display:block;margin-top:12px">结束时间（本段与下一段的分界，格式 m:ss）
+        <input id="topic-modal-end" type="text" placeholder="例如 12:34" style="width:100%;box-sizing:border-box;margin-top:6px">
+      </label>
+      <div id="topic-modal-hint" class="settings-result"></div>
+      <div class="modal-actions">
+        <button id="topic-modal-delete" type="button" class="danger">删除该段（并入前段）</button>
+        <span class="modal-spacer"></span>
+        <button id="topic-modal-cancel" type="button">取消</button>
+        <button id="topic-modal-save" type="button" class="primary">保存</button>
+      </div>
+    </div>
+  </div>
+
   <div id="msg-modal" class="modal hidden" role="dialog" aria-modal="true" aria-hidden="true">
     <div class="modal-card dlg-card">
       <h3 id="msg-title">提示</h3>
@@ -181,7 +235,7 @@
 
   <script src="/static/access.js?v=1"></script>
   <script src="/static/marked.min.js?v=1"></script>
-  <script src="/static/common.js?v=4"></script>
-  <script src="/static/meeting.js?v=28"></script>
+  <script src="/static/common.js?v=5"></script>
+  <script src="/static/meeting.js?v=30"></script>
 </body>
 </html>

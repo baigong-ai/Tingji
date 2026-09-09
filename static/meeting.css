@@ -212,6 +212,203 @@ header h1 .brand:hover { opacity: 0.85; }
 }
 .speaker-timeline:empty { display: none; }
 
+/* --- v0.7 (3.3) 议题时间轴：说话人条下方第二条时间轴，分段色块按阶段着色 --- */
+.topic-timeline-wrap { margin-top: 10px; }
+.topic-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.topic-label {
+  font-size: 11px;
+  color: var(--ink-faint);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.topic-tools { display: flex; gap: 6px; margin-left: auto; }
+.topic-timeline {
+  display: flex;
+  height: 24px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--ink-faint);
+}
+.topic-timeline:empty { display: none; }
+/* 段间纸色分隔线：相邻同色段（如连续两个「讨论」）也能看出边界 */
+.topic-seg + .topic-seg { border-left: 2px solid var(--paper); }
+.topic-seg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2px;
+  padding: 0 4px;
+  cursor: pointer;
+  color: #fff;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  opacity: 0.82;
+  transition: opacity var(--tx);
+}
+/* 名字超宽时省略号截断，窄段至少留个"…"可悬浮看全名（title） */
+.topic-seg .topic-seg-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.topic-seg:hover { opacity: 1; }
+.topic-seg:focus-visible { outline: 2px solid var(--seal); outline-offset: -2px; }
+.topic-seg.playing { opacity: 1; box-shadow: inset 0 0 0 2px rgba(255,255,255,0.75); }
+.topic-timeline.edit-mode .topic-seg {
+  border-left: 1px dashed rgba(255,255,255,0.7);
+  border-right: 1px dashed rgba(255,255,255,0.7);
+}
+.topic-timeline.edit-mode .topic-seg:hover {
+  box-shadow: inset 0 0 0 2px #fff;
+}
+/* 阶段配色：与纸墨风协调的中低饱和色 */
+.topic-seg.ph-bg      { background: #8c7b6b; }
+.topic-seg.ph-ask     { background: #b07d2e; }
+.topic-seg.ph-discuss { background: #3b6e8f; }
+.topic-seg.ph-decide  { background: #2f7d4f; }
+.topic-seg.ph-act     { background: #7c5cbf; }
+.topic-seg.ph-chat    { background: #9aa0a6; }
+
+/* --- v0.7 (3.1) 纪要条目时间戳 chip --- */
+.ts-chip {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 7px;
+  border: 1px solid var(--ink-faint);
+  border-radius: 10px;
+  background: var(--paper);
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 18px;
+  cursor: pointer;
+  vertical-align: 1px;
+  transition: all var(--tx);
+}
+.ts-chip:hover {
+  border-color: var(--seal);
+  color: var(--seal-deep);
+  background: var(--seal-soft);
+}
+.ts-chip:focus-visible { outline: 2px solid var(--seal); outline-offset: 1px; }
+
+/* --- v0.7 (3.2) 原文句上的笔记按钮/角标 --- */
+.transcript-line .note-btn {
+  float: right;
+  margin-left: 8px;
+  padding: 0 8px;
+  border: 1px solid var(--paper-edge);
+  border-radius: 10px;
+  background: var(--paper-deep);
+  color: var(--ink-faint);
+  font-size: 11px;
+  line-height: 20px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--tx), all var(--tx);
+}
+.transcript-line:hover .note-btn,
+.transcript-line .note-btn.has-notes,
+.transcript-line.active .note-btn { opacity: 1; }
+.transcript-line .note-btn:hover {
+  border-color: var(--seal);
+  color: var(--seal-deep);
+  background: var(--seal-soft);
+}
+.transcript-line .note-btn.has-notes {
+  color: var(--seal-deep);
+  border-color: var(--seal);
+  opacity: 0.85;
+}
+
+/* --- v0.7 (3.2) 「我的笔记」折叠区（总结 tab 顶部） --- */
+.notes-section { margin-bottom: 14px; }
+.notes-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 14px;
+  background: var(--paper-deep);
+  border: 1px solid var(--paper-edge);
+  border-radius: var(--r-sm);
+}
+.notes-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  padding: 2px 0;
+  cursor: pointer;
+  color: var(--ink);
+  font-size: 13px;
+  font-family: var(--font-serif);
+  letter-spacing: 0.06em;
+}
+.notes-toggle:hover { color: var(--seal); }
+.notes-caret {
+  display: inline-block;
+  width: 12px;
+  color: var(--ink-faint);
+  transition: transform var(--tx);
+}
+.notes-count {
+  color: var(--ink-faint);
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+.notes-list {
+  margin-top: 8px;
+  border: 1px dashed var(--paper-edge);
+  border-radius: var(--r-sm);
+  padding: 10px 14px;
+}
+.note-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--paper-edge);
+  font-size: 14px;
+  line-height: 1.7;
+}
+.note-item:last-child { border-bottom: none; }
+.note-item .note-text {
+  flex: 1;
+  color: var(--ink);
+  font-family: var(--font-serif);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.note-item .note-ops { display: inline-flex; gap: 4px; flex: none; }
+.note-free-tag {
+  flex: none;
+  font-size: 11px;
+  color: var(--ink-faint);
+  border: 1px solid var(--paper-edge);
+  border-radius: 10px;
+  padding: 0 8px;
+  line-height: 18px;
+  font-family: var(--font-mono);
+}
+.notes-empty {
+  margin: 4px 0;
+  font-size: 13px;
+  color: var(--ink-faint);
+  font-family: var(--font-serif);
+  font-style: italic;
+  line-height: 1.7;
+}
+
 /* --- 整理疑似未生效的显性告警 --- */
 .polish-warning {
   margin-top: 10px;

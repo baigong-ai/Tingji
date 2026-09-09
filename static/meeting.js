@@ -18,6 +18,15 @@ let lastIdx = -1;
 let lastCompareScrollIdx = -1;
 let _compareSegs = [];  // §7: 对照视图的时间区间段（曾挂在 window.__tingjiCompareSegs，改文件级 let）
 
+// v0.7: 个人笔记（3.2）与议题时间轴（3.3）
+let meetingNotes = [];          // 全部笔记（后端 notes.json 原样）
+let notesBySentence = {};       // 原句 idx -> [note, ...]，渲染角标用
+let currentTopics = null;       // {segments: [{topic,start,end,phase}], manual}
+let notesPanelOpen = false;     // 「我的笔记」折叠区
+let topicsEditMode = false;     // 议题时间轴编辑态（点段改属性而非跳转）
+const TOPIC_PHASES = ['背景', '提出问题', '讨论', '结论', '行动', '闲聊'];
+const TOPIC_PHASE_CLASS = { '背景': 'ph-bg', '提出问题': 'ph-ask', '讨论': 'ph-discuss', '结论': 'ph-decide', '行动': 'ph-act', '闲聊': 'ph-chat' };
+
 // P3: timeupdate ~4Hz，每帧都 querySelectorAll 在长会议里是稳定大列表的重复开销。
 // 在 renderAll 重建 DOM 后缓存一次，renderAll 开头失效。
 let _transcriptLines = null;
@@ -36,6 +45,40 @@ function fmtTs(ms) {
   const m = Math.floor(s / 60);
   const sec = s % 60;
   return `${m}:${String(sec).padStart(2,'0')}`;
+}
+// v0.7: 秒 → m:ss 文本（纪要 ts chip / 议题段标签用）
+function fmtSec(sec) { return fmtTs((Number(sec) || 0) * 1000); }
+// m:ss / h:mm:ss → 秒；解析失败返回 null（议题边界输入框用）
+function parseClockSec(str) {
+  const m = String(str || '').trim().match(/^(?:(\d{1,3}):)?(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const h = m[1] !== undefined ? parseInt(m[1], 10) : 0;
+  return h * 3600 + parseInt(m[2], 10) * 60 + parseInt(m[3], 10);
+}
+function seekToSec(sec) {
+  const v = Number(sec);
+  if (isFinite(v) && v >= 0) audioPlayer.currentTime = v;
+}
+function topicAt(sec) {
+  const segs = (currentTopics && currentTopics.segments) || [];
+  for (const s of segs) {
+    if (sec >= s.start && sec < s.end) return s;
+  }
+  return null;
+}
+// 跳到原句：切原文 tab + seek + 高亮滚动（笔记/时间戳 chip 共用）
+function jumpToSentence(idx, seek) {
+  if (seek && allSentences[idx]) seekToSec(allSentences[idx].start / 1000);
+  const rawTab = document.querySelector('.tab-btn[data-tab="raw"]');
+  if (rawTab && !document.getElementById('tab-raw').classList.contains('active')) rawTab.click();
+  const line = document.querySelector(`#transcript .transcript-line[data-idx="${idx}"]`);
+  if (line) {
+    if (activeLine && activeLine !== line) activeLine.classList.remove('active');
+    line.classList.add('active');
+    activeLine = line;
+    lastIdx = idx;
+    line.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 }
 // fmtDate / escapeHtml / statusLabel 见 static/common.js
 // 颜色走 CSS var(--spk-N)，这里只需一个取模基数（与 style.css/meeting.css 的 spk-0..6 对齐）。
@@ -58,11 +101,45 @@ function renderMd(md) {
 function applySpkToText(s) {
   return String(s).replace(/说话人\s*(\d+)/g, (m, n) => speakerNames[n] ? speakerNames[n] : m);
 }
+// v0.7 (3.1): 纪要条目时间戳 chip，点击回跳音频现场；title 顺带显示所属议题（3.3 联动）
+function tsChipHtml(sec) {
+  const t = topicAt(sec);
+  const label = fmtSec(sec);
+  const title = t ? `跳到 ${label}（议题：${t.topic}）` : `跳到 ${label}`;
+  return `<button type="button" class="ts-chip" data-sec="${sec}" title="${escapeHtml(title)}">${label}</button>`;
+}
+function summaryItemHtml(x) {
+  if (x && typeof x === 'object') {
+    const chips = (x.ts || []).slice(0, 3).map(tsChipHtml).join('');
+    return escapeHtml(applySpkToText(x.text || '')) + (chips ? ' ' + chips : '');
+  }
+  return escapeHtml(applySpkToText(String(x)));
+}
+// 结构化条目 ↔ 编辑框一行的互转：行尾 [m:ss] 即时间戳，保住编辑往返不丢
+function summaryItemToLine(it) {
+  if (it && typeof it === 'object') {
+    return it.text + (it.ts || []).slice(0, 3).map(t => ` [${fmtSec(t)}]`).join('');
+  }
+  return String(it);
+}
+function summaryLineToItem(line) {
+  const ts = [];
+  let text = String(line).trim();
+  let m;
+  while ((m = text.match(/\s*\[(\d{1,3}):(\d{2})(?::(\d{2}))?\]$/))) {
+    const h = m[3] !== undefined ? parseInt(m[1], 10) : 0;
+    const mm = m[3] !== undefined ? parseInt(m[2], 10) : parseInt(m[1], 10);
+    const ss = m[3] !== undefined ? parseInt(m[3], 10) : parseInt(m[2], 10);
+    ts.unshift(h * 3600 + mm * 60 + ss);
+    text = text.slice(0, m.index).trim();
+  }
+  return ts.length ? { text, ts } : { text };
+}
 function renderSummaryJson(d) {
   if (!d) return '<p class="empty-state">（暂无总结）</p>';
   const section = (title, items) => {
     if (!items || !items.length) return '';
-    const lis = items.map(x => `<li>${escapeHtml(applySpkToText(x))}</li>`).join('');
+    const lis = items.map(x => `<li>${summaryItemHtml(x)}</li>`).join('');
     return `<div class="sum-section"><h4>${title}</h4><ul>${lis}</ul></div>`;
   };
   let html = '';
@@ -215,20 +292,35 @@ function renderRaw(container, sentences, clickable) {
     div.dataset.idx = i;
     div.title = '单击跳转定位 · 双击编辑';
     // CSS 接管颜色：不再写 inline style
-    div.innerHTML = `<span class="ts">[${fmtTs(s.start)}]</span><span class="spk ${spkClass(s.spk)}">${escapeHtml(spkLabel(s.spk))}</span><span class="text">${escapeHtml(s.text)}</span>`;
-    if (clickable) {
-      div.addEventListener('click', () => {
-        audioPlayer.currentTime = s.start / 1000;
-      });
-    }
-    div.addEventListener('dblclick', () => editSentence(i));
+    const nCnt = (notesBySentence[i] || []).length;
+    const noteBtn = nCnt
+      ? `<button type="button" class="note-btn has-notes" data-idx="${i}" title="查看/添加笔记（现有 ${nCnt} 条）">✎ ${nCnt}</button>`
+      : `<button type="button" class="note-btn" data-idx="${i}" title="给这句写笔记">✎</button>`;
+    div.innerHTML = `<span class="ts">[${fmtTs(s.start)}]</span><span class="spk ${spkClass(s.spk)}">${escapeHtml(spkLabel(s.spk))}</span><span class="text">${escapeHtml(s.text)}</span>${noteBtn}`;
     container.appendChild(div);
   }
+  // v0.7: 事件委托替代每行绑 click/dblclick（长会议数百行时也不再重复重绑），
+  // 同时承接句子点击定位 / 双击编辑 / 笔记按钮三个入口。
+  container.onclick = (e) => {
+    const nb = e.target.closest('.note-btn');
+    if (nb) { openNoteModal(Number(nb.dataset.idx)); return; }
+    if (!clickable) return;
+    const line = e.target.closest('.transcript-line');
+    if (!line) return;
+    const s = sentences[Number(line.dataset.idx)];
+    if (s) audioPlayer.currentTime = s.start / 1000;
+  };
+  container.ondblclick = (e) => {
+    if (e.target.closest('.note-btn')) return;  // 双击笔记按钮不当成编辑句子
+    const line = e.target.closest('.transcript-line');
+    if (line) editSentence(Number(line.dataset.idx));
+  };
 }
 
 audioPlayer.addEventListener('timeupdate', () => {
   const ms = audioPlayer.currentTime * 1000;
   highlightTimelineSpeaker(ms);
+  highlightTopic(ms);
   if (document.getElementById('tab-raw').classList.contains('active')) {
     highlightSentence(ms);
   } else if (document.getElementById('tab-compare').classList.contains('active')) {
@@ -473,6 +565,7 @@ function renderAll() {
   invalidateDomCache();  // P3: 即将重建 DOM，缓存作废，渲染后重填
   renderSpeakersBar(allSpkCount);
   renderTimeline();
+  renderTopicTimeline();
   renderRaw(document.getElementById('transcript'), allSentences, true);
   const procEl = document.getElementById('processed-md');
   if (!currentProcessed && currentStatus === 'asr_done') {
@@ -482,6 +575,7 @@ function renderAll() {
     procEl.innerHTML = renderProcessedSegments(currentProcessed, allSentences);
   }
   document.getElementById('summary-md').innerHTML = currentSummaryJson ? renderSummaryJson(currentSummaryJson) : renderMd(currentSummary);
+  renderNotesSection();
   // 对照视图：左原文逐句，右整理段独立；hover 跨栏关键词定位
   const cmp = renderCompare(currentProcessed, allSentences);
   document.getElementById('compare-raw-body').innerHTML = cmp.rawHtml;
@@ -575,14 +669,14 @@ document.getElementById('sum-edit-btn').addEventListener('click', () => {
     el.innerHTML = `
       <div class="sum-edit">
         <label class="sum-edit-field">概述<textarea id="sum-edit-summary" class="md-editor" rows="4"></textarea></label>
-        <label class="sum-edit-field">决议（一行一条）<textarea id="sum-edit-decisions" class="md-editor" rows="4"></textarea></label>
-        <label class="sum-edit-field">待办（一行一条）<textarea id="sum-edit-actions" class="md-editor" rows="4"></textarea></label>
-        <label class="sum-edit-field">待讨论（一行一条）<textarea id="sum-edit-open" class="md-editor" rows="4"></textarea></label>
+        <label class="sum-edit-field">决议（一行一条，行尾可带 [m:ss] 时间戳）<textarea id="sum-edit-decisions" class="md-editor" rows="4"></textarea></label>
+        <label class="sum-edit-field">待办（一行一条，行尾可带 [m:ss] 时间戳）<textarea id="sum-edit-actions" class="md-editor" rows="4"></textarea></label>
+        <label class="sum-edit-field">待讨论（一行一条，行尾可带 [m:ss] 时间戳）<textarea id="sum-edit-open" class="md-editor" rows="4"></textarea></label>
       </div>${editBar}`;
     document.getElementById('sum-edit-summary').value = currentSummaryJson.summary || '';
-    document.getElementById('sum-edit-decisions').value = (currentSummaryJson.decisions || []).join('\n');
-    document.getElementById('sum-edit-actions').value = (currentSummaryJson.action_items || []).join('\n');
-    document.getElementById('sum-edit-open').value = (currentSummaryJson.open_questions || []).join('\n');
+    document.getElementById('sum-edit-decisions').value = (currentSummaryJson.decisions || []).map(summaryItemToLine).join('\n');
+    document.getElementById('sum-edit-actions').value = (currentSummaryJson.action_items || []).map(summaryItemToLine).join('\n');
+    document.getElementById('sum-edit-open').value = (currentSummaryJson.open_questions || []).map(summaryItemToLine).join('\n');
   } else {
     el.innerHTML = `<textarea id="sum-edit-text" class="md-editor" rows="18" aria-label="总结 markdown"></textarea>${editBar}`;
     document.getElementById('sum-edit-text').value = currentSummary;
@@ -594,12 +688,12 @@ document.getElementById('sum-edit-btn').addEventListener('click', () => {
     const saveBtn = document.getElementById('sum-edit-save');
     let payload;
     if (currentSummaryJson) {
-      const splitLines = id => document.getElementById(id).value.split('\n').map(s => s.trim()).filter(Boolean);
+      const splitItems = id => document.getElementById(id).value.split('\n').map(s => s.trim()).filter(Boolean).map(summaryLineToItem);
       payload = { summary_json: {
         summary: document.getElementById('sum-edit-summary').value.trim(),
-        decisions: splitLines('sum-edit-decisions'),
-        action_items: splitLines('sum-edit-actions'),
-        open_questions: splitLines('sum-edit-open'),
+        decisions: splitItems('sum-edit-decisions'),
+        action_items: splitItems('sum-edit-actions'),
+        open_questions: splitItems('sum-edit-open'),
       }};
     } else {
       payload = { text: document.getElementById('sum-edit-text').value };
@@ -688,6 +782,364 @@ function highlightTimelineSpeaker(ms) {
   const cur = allSentences[idx] ? Number(allSentences[idx].spk) : -1;
   segs.forEach(seg => seg.classList.toggle('speaking', Number(seg.dataset.spk) === cur));
 }
+
+// === v0.7 (3.2) 个人笔记层：独立存储，锚定原句 idx，重新整理不丢 ===
+
+function rebuildNotesIndex() {
+  notesBySentence = {};
+  for (const n of meetingNotes) {
+    const a = n.anchor;
+    if (a && a.type === 'sentence') {
+      (notesBySentence[a.idx] = notesBySentence[a.idx] || []).push(n);
+    }
+  }
+}
+
+async function refreshNotes() {
+  try {
+    const d = await fetch(`/api/meetings/${meetingId}/notes`).then(r => r.json());
+    meetingNotes = d.notes || [];
+  } catch (e) { /* 网络瞬断时保留旧数据 */ }
+  rebuildNotesIndex();
+  renderRaw(document.getElementById('transcript'), allSentences, true);
+  _transcriptLines = document.querySelectorAll('#transcript .transcript-line');
+  renderNotesSection();
+  doSearch(document.getElementById('search-input').value);
+}
+
+function noteSortKey(n) {
+  const a = n.anchor;
+  if (a && a.type === 'sentence' && allSentences[a.idx]) return allSentences[a.idx].start;
+  return Number.MAX_SAFE_INTEGER;  // 自由笔记排在锚定笔记之后
+}
+
+function renderNotesSection() {
+  const wrap = document.getElementById('notes-section');
+  if (!wrap) return;
+  const showable = meetingNotes.length > 0 || ['asr_done', 'done'].includes(currentStatus);
+  wrap.classList.toggle('hidden', !showable);
+  if (!showable) return;
+  document.getElementById('notes-count').textContent = meetingNotes.length ? `（${meetingNotes.length}）` : '';
+  const toggleBtn = document.getElementById('notes-toggle');
+  toggleBtn.setAttribute('aria-expanded', String(notesPanelOpen));
+  toggleBtn.querySelector('.notes-caret').textContent = notesPanelOpen ? '▾' : '▸';
+  const list = document.getElementById('notes-list');
+  list.classList.toggle('hidden', !notesPanelOpen);
+  if (!notesPanelOpen) return;
+  const sorted = [...meetingNotes].sort((a, b) => noteSortKey(a) - noteSortKey(b));
+  list.innerHTML = sorted.map(n => {
+    const a = n.anchor;
+    let loc = '<span class="note-free-tag">全局</span>';
+    if (a && a.type === 'sentence' && allSentences[a.idx]) {
+      const s = allSentences[a.idx];
+      loc = `<button type="button" class="ts-chip" data-sec="${s.start / 1000}" data-idx="${a.idx}" title="跳到锚定的原句">${fmtTs(s.start)}</button>`;
+    }
+    return `<div class="note-item" data-id="${escapeHtml(n.id)}">${loc}<span class="note-text">${escapeHtml(n.text)}</span><span class="note-ops"><button type="button" class="mini" data-act="edit">改</button><button type="button" class="mini" data-act="del">删</button></span></div>`;
+  }).join('') || '<p class="notes-empty">还没有笔记。在「原文」里把鼠标移到某句上点 ✎ 写锚定笔记，或点右上「＋ 写笔记」写全局笔记。笔记独立保存，重新整理不会丢。</p>';
+}
+
+// 笔记区交互（折叠/新增/跳转/编辑/删除）走一个委托
+document.getElementById('notes-section').addEventListener('click', async (e) => {
+  if (e.target.closest('#note-add-free')) { openNoteModal(null); return; }
+  if (e.target.closest('#notes-toggle')) { notesPanelOpen = !notesPanelOpen; renderNotesSection(); return; }
+  const chip = e.target.closest('.ts-chip');
+  if (chip) {
+    e.stopPropagation();  // tab-summary 层还有一个 chip 委托，别重复处理
+    const idx = Number(chip.dataset.idx);
+    if (chip.dataset.idx !== undefined && allSentences[idx]) jumpToSentence(idx, true);
+    else seekToSec(chip.dataset.sec);
+    return;
+  }
+  const op = e.target.closest('.note-ops [data-act]');
+  if (!op) return;
+  const item = op.closest('.note-item');
+  const note = meetingNotes.find(n => n.id === item.dataset.id);
+  if (!note) return;
+  if (op.dataset.act === 'edit') {
+    openNoteModal(null, note);
+  } else if (op.dataset.act === 'del') {
+    if (!await confirmDialog('删除这条笔记？')) return;
+    try {
+      const r = await fetch(`/api/meetings/${meetingId}/notes/${encodeURIComponent(note.id)}`, { method: 'DELETE' });
+      if (!r.ok) throw new Error('删除失败');
+      await refreshNotes();
+    } catch (err) { await alertDialog('删除失败: ' + err.message); }
+  }
+});
+
+const noteModal = document.getElementById('note-modal');
+let noteModalCtx = null;  // {mode: 'create'|'edit', idx, note}
+function openNoteModal(idx, note) {
+  noteModalCtx = { mode: note ? 'edit' : 'create', idx: note ? null : idx, note: note || null };
+  document.getElementById('note-modal-title').textContent = note ? '编辑笔记' : '写笔记';
+  const anchorEl = document.getElementById('note-modal-anchor');
+  const a = note && note.anchor;
+  const ai = note ? (a && a.type === 'sentence' ? a.idx : null) : idx;
+  if (ai != null && allSentences[ai]) {
+    anchorEl.textContent = `锚定原句 [${fmtTs(allSentences[ai].start)}]：${allSentences[ai].text.slice(0, 50)}`;
+  } else {
+    anchorEl.textContent = '全局笔记（不锚定具体句子）';
+  }
+  document.getElementById('note-text').value = note ? note.text : '';
+  document.getElementById('note-delete').classList.toggle('hidden', !note);
+  document.getElementById('note-hint').textContent = '';
+  openModal(noteModal, { focus: '#note-text' });
+}
+document.getElementById('note-cancel').addEventListener('click', () => closeModal(noteModal));
+noteModal.addEventListener('click', e => { if (e.target === noteModal) closeModal(noteModal); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !noteModal.classList.contains('hidden')) closeModal(noteModal);
+});
+document.getElementById('note-save').addEventListener('click', async () => {
+  const hint = document.getElementById('note-hint');
+  const saveBtn = document.getElementById('note-save');
+  const text = document.getElementById('note-text').value.trim();
+  if (!text) { hint.textContent = '笔记内容不能为空'; return; }
+  saveBtn.disabled = true;
+  hint.textContent = '';
+  try {
+    let r;
+    if (noteModalCtx.mode === 'edit') {
+      r = await fetch(`/api/meetings/${meetingId}/notes/${encodeURIComponent(noteModalCtx.note.id)}`, {
+        method: 'PUT', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ text })
+      });
+    } else {
+      const body = { text };
+      if (noteModalCtx.idx != null) body.anchor = { type: 'sentence', idx: noteModalCtx.idx };
+      r = await fetch(`/api/meetings/${meetingId}/notes`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+      });
+    }
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || '保存失败');
+    }
+    closeModal(noteModal);
+    await refreshNotes();
+  } catch (e2) {
+    hint.textContent = '保存失败: ' + e2.message;
+  } finally {
+    saveBtn.disabled = false;
+  }
+});
+document.getElementById('note-delete').addEventListener('click', async () => {
+  if (!noteModalCtx || noteModalCtx.mode !== 'edit') return;
+  if (!await confirmDialog('删除这条笔记？')) return;
+  try {
+    const r = await fetch(`/api/meetings/${meetingId}/notes/${encodeURIComponent(noteModalCtx.note.id)}`, { method: 'DELETE' });
+    if (!r.ok) throw new Error('删除失败');
+    closeModal(noteModal);
+    await refreshNotes();
+  } catch (e) { await alertDialog('删除失败: ' + e.message); }
+});
+
+// 总结 tab 的纪要时间戳 chip（含笔记区之外 summary-md 里的）
+document.getElementById('tab-summary').addEventListener('click', e => {
+  const chip = e.target.closest('.ts-chip');
+  if (!chip) return;
+  const idx = Number(chip.dataset.idx);
+  if (chip.dataset.idx !== undefined && allSentences[idx]) { jumpToSentence(idx, true); return; }
+  seekToSec(chip.dataset.sec);
+});
+
+// === v0.7 (3.3) 议题时间轴：LLM 给初值，人可校正（编辑态点段改属性） ===
+
+function findSentenceIdxAt(sec) {
+  let idx = 0;
+  for (let i = 0; i < allSentences.length; i++) {
+    if (allSentences[i].start <= sec * 1000) idx = i; else break;
+  }
+  return idx;
+}
+
+function topicSegTitle(s) {
+  const first = allSentences.find(x => x.start >= s.start * 1000 && x.start < s.end * 1000);
+  const preview = first ? `\n首句：${first.text.slice(0, 50)}` : '';
+  return `${s.topic} · ${s.phase} · ${fmtSec(s.start)}-${fmtSec(s.end)}${preview}`;
+}
+
+function renderTopicTimeline() {
+  const wrap = document.getElementById('topic-timeline-wrap');
+  const bar = document.getElementById('topic-timeline');
+  if (!wrap || !bar) return;
+  const segs = (currentTopics && currentTopics.segments) || [];
+  wrap.classList.toggle('hidden', allSentences.length === 0);
+  document.getElementById('topic-generate-btn').classList.toggle('hidden', segs.length > 0 || isProcessingStatus(currentStatus));
+  document.getElementById('topic-tools').classList.toggle('hidden', segs.length === 0);
+  document.getElementById('topic-edit-btn').textContent = topicsEditMode ? '完成' : '编辑';
+  bar.classList.toggle('edit-mode', topicsEditMode);
+  bar.innerHTML = segs.map((s, i) => {
+    const dur = Math.max(1, s.end - s.start);
+    return `<div class="topic-seg ${TOPIC_PHASE_CLASS[s.phase] || 'ph-discuss'}" data-i="${i}" role="button" tabindex="0" style="flex:${dur}" title="${escapeHtml(topicSegTitle(s))}"><span class="topic-seg-name">${escapeHtml(s.topic)}</span></div>`;
+  }).join('');
+}
+
+function highlightTopic(ms) {
+  const els = document.querySelectorAll('#topic-timeline .topic-seg');
+  if (!els.length) return;
+  const sec = ms / 1000;
+  let cur = -1;
+  ((currentTopics && currentTopics.segments) || []).forEach((s, i) => {
+    if (sec >= s.start && sec < s.end) cur = i;
+  });
+  els.forEach((el, i) => el.classList.toggle('playing', i === cur));
+}
+
+async function refreshTopics() {
+  try {
+    const d = await fetch(`/api/meetings/${meetingId}/topics`).then(r => r.json());
+    currentTopics = (d && Array.isArray(d.segments) && d.segments.length) ? d : null;
+  } catch (e) { /* 网络瞬断时保留旧数据 */ }
+  renderTopicTimeline();
+}
+
+const topicBar = document.getElementById('topic-timeline');
+topicBar.addEventListener('click', e => {
+  const seg = e.target.closest('.topic-seg');
+  if (!seg) return;
+  const s = ((currentTopics && currentTopics.segments) || [])[Number(seg.dataset.i)];
+  if (!s) return;
+  if (topicsEditMode) { openTopicModal(Number(seg.dataset.i)); return; }
+  seekToSec(s.start);
+  jumpToSentence(findSentenceIdxAt(s.start), false);
+});
+topicBar.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const seg = e.target.closest('.topic-seg');
+  if (seg) { e.preventDefault(); seg.click(); }
+});
+
+document.getElementById('topic-edit-btn').addEventListener('click', () => {
+  topicsEditMode = !topicsEditMode;
+  renderTopicTimeline();
+});
+
+async function runTopicGeneration(isRegen) {
+  let force = false;
+  if (isRegen && currentTopics && currentTopics.manual) {
+    if (!await confirmDialog('议题时间轴被手动改过，重新生成会覆盖手动修改，继续？')) return;
+    force = true;
+  }
+  const progBtn = document.getElementById(isRegen && (currentTopics || {}).segments ? 'topic-regen-btn' : 'topic-generate-btn');
+  const oldText = progBtn.textContent;
+  const btns = [document.getElementById('topic-generate-btn'), document.getElementById('topic-regen-btn')];
+  btns.forEach(b => { if (b) b.disabled = true; });
+  try {
+    const r = await fetch(`/api/meetings/${meetingId}/topics/generate${force ? '?force=1' : ''}`, { method: 'POST' });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || '提交失败');
+    }
+    const { task_id } = await r.json();
+    await new Promise((resolve, reject) => {
+      const timer = setInterval(async () => {
+        try {
+          const s = await fetch(`/api/tasks/${task_id}`).then(x => x.json());
+          progBtn.textContent = `生成中… ${s.progress}%`;
+          if (s.status === 'done') { clearInterval(timer); resolve(); }
+          else if (s.status === 'error') { clearInterval(timer); reject(new Error(s.error || '生成失败')); }
+        } catch (e) { clearInterval(timer); reject(e); }
+      }, 2000);
+    });
+    await refreshTopics();
+    // 议题变了，纪要 chip 的 title（所属议题）也要跟着刷新
+    document.getElementById('summary-md').innerHTML = currentSummaryJson ? renderSummaryJson(currentSummaryJson) : renderMd(currentSummary);
+  } catch (e) {
+    await alertDialog('议题时间轴生成失败: ' + e.message);
+  } finally {
+    btns.forEach(b => { if (b) b.disabled = false; });
+    progBtn.textContent = oldText;
+  }
+}
+document.getElementById('topic-regen-btn').addEventListener('click', () => runTopicGeneration(true));
+document.getElementById('topic-generate-btn').addEventListener('click', () => runTopicGeneration(false));
+
+const topicModal = document.getElementById('topic-modal');
+let topicModalIdx = -1;
+function openTopicModal(i) {
+  const segs = (currentTopics && currentTopics.segments) || [];
+  const s = segs[i];
+  if (!s) return;
+  topicModalIdx = i;
+  document.getElementById('topic-modal-name').value = s.topic;
+  const sel = document.getElementById('topic-modal-phase');
+  sel.innerHTML = TOPIC_PHASES.map(p => `<option value="${p}">${p}</option>`).join('');
+  sel.value = TOPIC_PHASES.includes(s.phase) ? s.phase : '讨论';
+  const endInput = document.getElementById('topic-modal-end');
+  endInput.value = fmtSec(s.end);
+  endInput.disabled = i >= segs.length - 1;  // 末段以会议结尾收边，不给改
+  endInput.parentElement.title = i >= segs.length - 1 ? '最后一段的结束时间固定为会议结尾' : '';
+  document.getElementById('topic-modal-delete').classList.toggle('hidden', segs.length <= 1);
+  document.getElementById('topic-modal-hint').textContent = '';
+  openModal(topicModal, { focus: '#topic-modal-name' });
+}
+document.getElementById('topic-modal-cancel').addEventListener('click', () => closeModal(topicModal));
+topicModal.addEventListener('click', e => { if (e.target === topicModal) closeModal(topicModal); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !topicModal.classList.contains('hidden')) closeModal(topicModal);
+});
+
+async function saveTopicSegments(segs) {
+  const hint = document.getElementById('topic-modal-hint');
+  try {
+    const r = await fetch(`/api/meetings/${meetingId}/topics`, {
+      method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ segments: segs })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || '保存失败');
+    currentTopics = d.topics;
+    topicsEditMode = segs.length > 0 ? topicsEditMode : false;
+    closeModal(topicModal);
+    renderTopicTimeline();
+    document.getElementById('summary-md').innerHTML = currentSummaryJson ? renderSummaryJson(currentSummaryJson) : renderMd(currentSummary);
+    return true;
+  } catch (e) {
+    hint.textContent = '保存失败: ' + e.message;
+    return false;
+  }
+}
+
+document.getElementById('topic-modal-save').addEventListener('click', async () => {
+  const hint = document.getElementById('topic-modal-hint');
+  const segs = JSON.parse(JSON.stringify((currentTopics || {}).segments || []));
+  const s = segs[topicModalIdx];
+  if (!s) return;
+  const name = document.getElementById('topic-modal-name').value.trim();
+  if (!name) { hint.textContent = '议题名不能为空'; return; }
+  s.topic = name.slice(0, 40);
+  s.phase = document.getElementById('topic-modal-phase').value;
+  if (topicModalIdx < segs.length - 1) {
+    const end = parseClockSec(document.getElementById('topic-modal-end').value);
+    if (end === null) { hint.textContent = '结束时间格式：m:ss（如 12:34）'; return; }
+    // 边界至少留 1 秒，保证本段与下一段都还有效
+    const minEnd = s.start + 1;
+    const maxEnd = segs[topicModalIdx + 1].end - 1;
+    if (end < minEnd || end > maxEnd) {
+      hint.textContent = `结束时间需在 ${fmtSec(minEnd)} 和 ${fmtSec(maxEnd)} 之间`;
+      return;
+    }
+    s.end = end;
+    segs[topicModalIdx + 1].start = end;
+  }
+  await saveTopicSegments(segs);
+});
+
+document.getElementById('topic-modal-delete').addEventListener('click', async () => {
+  const segs = JSON.parse(JSON.stringify((currentTopics || {}).segments || []));
+  if (segs.length <= 1 || topicModalIdx < 0) return;
+  if (!await confirmDialog(`删除「${segs[topicModalIdx].topic}」？该段时间会并入相邻段。`)) return;
+  if (topicModalIdx === 0) {
+    segs[1].start = segs[0].start;  // 删首段：时间并入后一段
+    segs.shift();
+  } else {
+    segs[topicModalIdx - 1].end = segs[topicModalIdx].end;  // 并入前一段
+    segs.splice(topicModalIdx, 1);
+  }
+  await saveTopicSegments(segs);
+});
 
 async function editSpeaker(spk) {
   const fallback = `说话人${spk}`;
@@ -1102,6 +1554,16 @@ async function load() {
     currentSummary = data.summary || '';
     currentSummaryJson = data.summary_json || null;
     meetingTemplate = meta.template || '';
+    // v0.7: 笔记与议题时间轴并行拉取（失败不阻塞主渲染）
+    try {
+      const [notesD, topicsD] = await Promise.all([
+        fetch(`/api/meetings/${meetingId}/notes`).then(r => r.json()),
+        fetch(`/api/meetings/${meetingId}/topics`).then(r => r.json()),
+      ]);
+      meetingNotes = notesD.notes || [];
+      currentTopics = (topicsD && Array.isArray(topicsD.segments) && topicsD.segments.length) ? topicsD : null;
+    } catch (e) { meetingNotes = []; currentTopics = null; }
+    rebuildNotesIndex();
     try {
       const td = await fetch('/api/settings/templates').then(r => r.json());
       templates = td.templates || [];

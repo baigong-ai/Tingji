@@ -690,6 +690,16 @@ button.mini:hover:not(:disabled) {
   background: var(--paper-deep);
   color: var(--ink);
 }
+/* v0.7: 弹窗操作区的危险按钮（删笔记/删议题段）与弹性空隙（把危险操作推到左侧） */
+.modal-actions button.danger {
+  background: transparent;
+  color: var(--seal);
+  border: 1px solid var(--seal);
+}
+.modal-actions button.danger:hover:not(:disabled) {
+  background: var(--seal-soft);
+}
+.modal-spacer { flex: 1 1 auto; }
 
 /* 设置 tabs */
 .settings-tabs {
@@ -896,70 +906,7 @@ button.mini:hover:not(:disabled) {
    ============================================================ */
 .live-card h2 { margin-top: 0; }
 
-.engine-picker {
-  display: grid;
-  gap: 12px;
-  margin-bottom: 22px;
-}
-.engine-option {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 16px;
-  border: 1.5px solid var(--paper-edge);
-  border-radius: var(--r-md);
-  background: var(--paper);
-  cursor: pointer;
-  transition: all var(--tx);
-}
-.engine-option:hover:not(.disabled) {
-  border-color: var(--ink-faint);
-  background: var(--paper-deep);
-}
-.engine-option.active {
-  border-color: var(--seal);
-  background: var(--seal-soft);
-}
-.engine-option.disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-  background: var(--paper-deep);
-}
-.engine-radio {
-  flex: none;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  border: 2px solid var(--ink-faint);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  color: transparent;
-  margin-top: 2px;
-}
-.engine-option.active .engine-radio {
-  border-color: var(--seal);
-  color: var(--seal);
-}
-.engine-option.disabled .engine-radio { border-color: var(--ink-ghost); }
-.engine-name {
-  font-weight: 600;
-  font-size: 15px;
-  color: var(--ink);
-}
-.engine-desc {
-  font-size: 12px;
-  color: var(--ink-faint);
-  margin-top: 2px;
-}
-.engine-hint {
-  font-size: 12px;
-  color: var(--ochre);
-  margin-top: 6px;
-  font-family: var(--font-serif);
-}
-.engine-option.active .engine-hint { color: var(--moss); }
+/* v0.7：增强模式（GPU sidecar）暂不提供，引擎选择器连同样式一并移除 */
 
 .live-controls {
   display: flex;

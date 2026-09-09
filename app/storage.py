@@ -55,7 +55,10 @@ def _read_meta(mdir: Path) -> dict | None:
 def _read_json(p: Path):
     if not p.exists():
         return None
-    return json.loads(p.read_text(encoding="utf-8"))
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return None
 
 
 def _read_text(p: Path):
@@ -177,6 +180,41 @@ def save_summary_json(meeting_id: str, data) -> None:
             f.unlink()
         return
     f.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+# --- v0.7 个人笔记层（3.2）: notes.json，独立于纪要本体，重新整理不覆盖 ---
+
+def load_notes(meeting_id: str) -> list:
+    if not is_valid_meeting_id(meeting_id):
+        return []
+    data = _read_json(DATA_DIR / meeting_id / "notes.json")
+    return data if isinstance(data, list) else []
+
+
+def save_notes(meeting_id: str, notes: list) -> None:
+    mdir = DATA_DIR / meeting_id
+    # 与 meta.json 同款原子写：崩溃在半路也不会留下损坏的 notes.json
+    tmp = mdir / "notes.json.tmp"
+    tmp.write_text(json.dumps(notes, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(mdir / "notes.json")
+
+
+# --- v0.7 议题时间轴（3.3）: topics.json，{"segments": [...], "manual": bool} ---
+
+def load_topics(meeting_id: str) -> dict | None:
+    if not is_valid_meeting_id(meeting_id):
+        return None
+    data = _read_json(DATA_DIR / meeting_id / "topics.json")
+    if not isinstance(data, dict) or not isinstance(data.get("segments"), list):
+        return None
+    return data
+
+
+def save_topics(meeting_id: str, data: dict) -> None:
+    mdir = DATA_DIR / meeting_id
+    tmp = mdir / "topics.json.tmp"
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(mdir / "topics.json")
 
 
 def append_log_line(meeting_id: str, entry: dict) -> None:

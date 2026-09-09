@@ -16,7 +16,8 @@ POLISH_PROMPT = """你是一个会议录音整理助手。下面是一段会议�
 语音识别原文里有同音错字和口语碎句，请整理成规范的会议记录。
 
 规则：
-- 保留说话人分段，使用 `## 说话人 N` 作为小标题
+- 保留说话人分段，使用 `## 说话人 N [m:ss]` 作为小标题，方括号里是这段发言开始的时间
+- 小节标题里的时间标记 `[m:ss]` 必须原样保留在标题行：不要删掉、不要改数字、不要挪位置
 - 纠正明显的语音识别错误：同音字、术语、人名、专有名词写错的，结合上下文和会议背景改准
   （如背景提到"国际足联"，原文的"菲马"应改为"国际足联"）；拿不准的保留原样，不要凭空猜造
 - 去除口头禅（那个、然后、嗯、就是）和重复的词、句
@@ -27,7 +28,7 @@ POLISH_PROMPT = """你是一个会议录音整理助手。下面是一段会议�
 
 示例：
 转录：
-## 说话人 0
+## 说话人 0 [0:12]
 嗯，
 就是说那个菲马啊，
 世界杯的转播，
@@ -36,24 +37,27 @@ POLISH_PROMPT = """你是一个会议录音整理助手。下面是一段会议�
 也是因为电视普及了。
 
 整理后：
-## 说话人 0
+## 说话人 0 [0:12]
 国际足联（FIFA）世界杯的电视转播卖出了八十万美元，四年翻了十倍，这也是因为电视普及了。
 
 转录内容：
 {input}
 """
 
-SUMMARIZE_PROMPT = """下面是一份整理后的会议记录。请输出**严格的 JSON**（不要 markdown 代码块、不要任何额外文字），结构必须是：
+SUMMARIZE_PROMPT = """下面是一份整理后的会议记录，小节标题里带有 `[m:ss]` 时间标记（长会议为 `[h:mm:ss]`）。请输出**严格的 JSON**（不要 markdown 代码块、不要任何额外文字），结构必须是：
 
-{{"summary": "会议核心内容概述，1-3 句", "decisions": ["已确定的事项，每条一句"], "action_items": ["待办事项，尽量括注负责人"], "open_questions": ["未解决或待讨论的问题"]}}
+{{"summary": "会议核心内容概述，1-3 句", "decisions": [{{"text": "已确定的事项，每条一句", "ts": ["12:34"]}}], "action_items": [{{"text": "待办事项，尽量括注负责人", "ts": ["15:20"]}}], "open_questions": [{{"text": "未解决或待讨论的问题", "ts": []}}]}}
 
-四个字段都要有，没内容的给空数组 []。只输出 JSON 本身。
+规则：
+- 四个字段都要有，没内容的给空数组 []
+- decisions / action_items / open_questions 的每条是一个对象：text 是内容本身；ts 是这条内容在会议中被讨论或确定的时间点数组，从会议记录标题的时间标记里找，格式 "m:ss" 或 "h:mm:ss"
+- 一条内容在多个时间点被讨论过就都列上；找不到对应时间就给空数组 []，不要编造时间
 
 会议记录：
 {input}
 """
 
-REDUCE_PROMPT = """下面是同一会议多个分段各自输出的会议纪要 JSON。请合并为一份统一的 JSON（同样结构：summary/decisions/action_items/open_questions），去重，summary 给出综合概述。只输出 JSON 本身。
+REDUCE_PROMPT = """下面是同一会议多个分段各自输出的会议纪要 JSON。请合并为一份统一的 JSON（同样结构：summary/decisions/action_items/open_questions，列表每条为 {{"text": "...", "ts": ["m:ss"]}}），去重并保留各条的 ts 时间标记，summary 给出综合概述。只输出 JSON 本身。
 
 {input}
 """
@@ -184,6 +188,14 @@ def chunk_sentences(sentences: list[dict], minutes: int) -> list[list[dict]]:
     return chunks
 
 
+def fmt_clock(sec) -> str:
+    """秒数 → 'm:ss'（≥1h 用 'h:mm:ss'），polish 时间锚点 / 纪要时间戳导出共用。"""
+    s = max(0, int(round(sec or 0)))
+    h, rem = divmod(s, 3600)
+    m, sec2 = divmod(rem, 60)
+    return f"{h}:{m:02d}:{sec2:02d}" if h else f"{m}:{sec2:02d}"
+
+
 def format_chunk(chunk: list[dict], mark_failed: bool = False) -> str:
     lines = []
     last_spk = None
@@ -191,7 +203,9 @@ def format_chunk(chunk: list[dict], mark_failed: bool = False) -> str:
     for s in chunk:
         spk = s["spk"]
         if spk != last_spk:
-            lines.append(f"\n## 说话人 {spk}{tag}")
+            # 3.1 路径 A：小节标题带上该次发言开始的时间锚点，prompt 要求模型原样保留，
+            # 这样时间信息能活到 summarize，纪要条目才能带可回跳的时间戳。
+            lines.append(f"\n## 说话人 {spk} [{fmt_clock(s['start'] / 1000)}]{tag}")
             last_spk = spk
         lines.append(s["text"])
     return "\n".join(lines).strip()
@@ -316,32 +330,103 @@ def _parse_summary_json(text: str) -> dict | None:
             d = json.loads(m.group(0))
         except Exception:
             return None
+    if not isinstance(d, dict):
+        return None
+    return clean_summary_json(d)
 
-    def _items(v):
-        if isinstance(v, list):
-            return [str(x).strip() for x in v if str(x).strip()]
-        if isinstance(v, str) and v.strip():
-            return [v.strip()]
-        return []
 
+def parse_ts_value(v) -> list[float]:
+    """把 LLM 给的时间戳解析成秒数列表。兼容：数字秒、"84"、"1:23"、"01:02:03"、
+    以及上述任意混排的数组。解析不出就返回空列表（纪要条目降级为无时间戳）。"""
+    def _one(x):
+        if isinstance(x, bool) or x is None:
+            return None
+        if isinstance(x, (int, float)):
+            return float(x) if x >= 0 else None
+        if isinstance(x, str):
+            s = x.strip().strip("[]")
+            if not s:
+                return None
+            m = re.fullmatch(r"(?:(\d{1,3}):)?(\d{1,2}):(\d{2})", s)
+            if m:
+                h = int(m.group(1) or 0)
+                return h * 3600 + int(m.group(2)) * 60 + int(m.group(3))
+            if re.fullmatch(r"\d+(\.\d+)?", s):
+                return float(s)
+        return None
+
+    vals = v if isinstance(v, list) else [v]
+    out = []
+    for x in vals:
+        n = _one(x)
+        # 上限 100 小时，挡掉把毫秒/乱数当秒的输出
+        if n is not None and 0 <= n < 100 * 3600:
+            out.append(round(n, 1))
+    return out
+
+
+def _summary_items(v) -> list[dict]:
+    """兼容两种条目形态：纯字符串（旧格式 / 弱模型输出）与 {"text", "ts"} 对象，
+    统一成 {"text": str, "ts": [秒, ...]}（无时间戳的条目不带 ts 键）。"""
+    out = []
+    if isinstance(v, list):
+        for x in v:
+            if isinstance(x, str):
+                if x.strip():
+                    out.append({"text": x.strip()})
+            elif isinstance(x, dict):
+                text = x.get("text")
+                if not isinstance(text, str) or not text.strip():
+                    continue
+                item = {"text": text.strip()}
+                ts = parse_ts_value(x.get("ts"))
+                if ts:
+                    item["ts"] = ts
+                out.append(item)
+    elif isinstance(v, str) and v.strip():
+        out.append({"text": v.strip()})
+    return out
+
+
+def clean_summary_json(d: dict) -> dict:
+    """summary.json 的规范化出口：解析与手动编辑（PUT /summary）共用，
+    保证落盘结构一致、旧字符串条目向上兼容。"""
     return {
-        "summary": str(d.get("summary", "")).strip(),
-        "decisions": _items(d.get("decisions")),
-        "action_items": _items(d.get("action_items")),
-        "open_questions": _items(d.get("open_questions")),
+        "summary": str(d.get("summary") or "").strip(),
+        "decisions": _summary_items(d.get("decisions")),
+        "action_items": _summary_items(d.get("action_items")),
+        "open_questions": _summary_items(d.get("open_questions")),
     }
 
 
+def _item_text(item) -> str:
+    return item["text"] if isinstance(item, dict) else str(item)
+
+
+def _item_ts(item) -> list:
+    return item.get("ts") or [] if isinstance(item, dict) else []
+
+
 def summary_to_md(d: dict) -> str:
+    def _lines(items, checkbox=False):
+        out = []
+        for x in items:
+            line = ("- [ ] " if checkbox else "- ") + _item_text(x)
+            ts = _item_ts(x)[:3]  # 最多带 3 个时间点，避免长会条目变成时间戳串
+            if ts:
+                line += " " + " ".join(f"[{fmt_clock(t)}]" for t in ts)
+            out.append(line)
+        return out
+
     parts = []
     if d.get("summary"):
         parts.append(f"## 概述\n\n{d['summary']}")
     if d.get("decisions"):
-        parts.append("## 决议\n\n" + "\n".join(f"- {x}" for x in d["decisions"]))
+        parts.append("## 决议\n\n" + "\n".join(_lines(d["decisions"])))
     if d.get("action_items"):
-        parts.append("## 待办\n\n" + "\n".join(f"- [ ] {x}" for x in d["action_items"]))
+        parts.append("## 待办\n\n" + "\n".join(_lines(d["action_items"], checkbox=True)))
     if d.get("open_questions"):
-        parts.append("## 待讨论\n\n" + "\n".join(f"- {x}" for x in d["open_questions"]))
+        parts.append("## 待讨论\n\n" + "\n".join(_lines(d["open_questions"])))
     return "\n\n".join(parts)
 
 
@@ -371,3 +456,189 @@ def summarize(processed_md: str, cfg: LLMConfig, on_log=None, meeting_context: s
     raw = _chat_retry(ctx + REDUCE_PROMPT.format(input="\n\n".join(partials)), cfg, json_mode=True)
     _log("info", "总结完成")
     return _parse_summary_json(raw) or raw
+
+
+# --- 3.3 议题级会议时间轴 ------------------------------------------------------
+
+TOPIC_PHASES = ("背景", "提出问题", "讨论", "结论", "行动", "闲聊")
+
+# 长会 map-reduce：骨架按 ~25 分钟窗口分组，每组一次 LLM 调用，最后合并边界
+_TOPIC_MAP_WINDOW_S = 25 * 60
+
+SEGMENT_TOPICS_PROMPT = """下面是一场会议的「时间轴骨架」：按时间顺序排列的发言要点，每行开头是 [开始-结束] 时间区间。
+请把这段会议按议题划分为若干段，输出**严格的 JSON**（不要 markdown 代码块、不要任何额外文字），结构必须是：
+
+{{"segments": [{{"topic": "议题名（12 字以内，要具体）", "start": 起始秒数, "end": 结束秒数, "phase": "阶段"}}, ...]}}
+
+规则：
+- start / end 是整数秒，取自骨架里的时间标记；首段从 {first_sec} 秒开始，段与段时间上连续不重叠，末段到本段材料结束
+- phase 只能取以下之一：背景 / 提出问题 / 讨论 / 结论 / 行动 / 闲聊
+- 议题名要具体（如「确认 Q3 需求范围」「服务器选型对比」），不要「讨论」「其他」这类空名字
+- 寒暄、跑题、与正题无关的段 phase 标「闲聊」，topic 写实际聊的内容（如「寒暄与设备调试」）
+- 这段材料约 {duration_min} 分钟（{duration_sec} 秒），通常划 2-8 段；很短的材料可以只有 1 段
+
+时间轴骨架：
+{input}
+"""
+
+
+def build_timeline_skeleton(sentences: list[dict], window_s: int = 45) -> str:
+    """把逐句转写聚合成时间轴骨架：说话人轮次 × 时间窗口（先到先切），
+    每行 `[m:ss-m:ss] 说话人N：该窗口首句要点`。纯代码生成、零模型参与，
+    是议题分段 (segment_topics) 的输入，也可直接喂给问答等后续消费层。"""
+    rows = []
+    cur = None
+    for s in sentences:
+        st = s.get("start", 0) or 0
+        en = s.get("end") or st
+        spk = str(s.get("spk", 0))
+        if cur is None or spk != cur["spk"] or st - cur["start"] >= window_s * 1000:
+            if cur:
+                rows.append(cur)
+            cur = {"start": st, "end": en, "spk": spk, "text": s.get("text", "")}
+        else:
+            cur["end"] = max(cur["end"], en)
+    if cur:
+        rows.append(cur)
+    out = []
+    for r in rows:
+        text = re.sub(r"\s+", " ", r["text"]).strip()
+        if len(text) > 60:
+            text = text[:60] + "…"
+        out.append(f"[{fmt_clock(r['start'] / 1000)}-{fmt_clock(r['end'] / 1000)}] 说话人{r['spk']}：{text}")
+    return "\n".join(out)
+
+
+def _skeleton_line_start_sec(line: str) -> float:
+    m = re.match(r"\[(\d{1,3}):(\d{2})(?::(\d{2}))?", line)
+    if not m:
+        return 0.0
+    if m.group(3) is not None:
+        return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + int(m.group(3))
+    return int(m.group(1)) * 60 + int(m.group(2))
+
+
+def _parse_topic_segments(text: str) -> list[dict]:
+    s = (text or "").strip()
+    if s.startswith("```"):
+        s = re.sub(r"^```[a-zA-Z]*", "", s).strip()
+        if s.endswith("```"):
+            s = s[:-3].strip()
+    try:
+        d = json.loads(s)
+    except Exception:
+        m = re.search(r"[\[{].*[\]}]", s, re.DOTALL)
+        if not m:
+            return []
+        try:
+            d = json.loads(m.group(0))
+        except Exception:
+            return []
+    segs = d.get("segments") if isinstance(d, dict) else d
+    if not isinstance(segs, list):
+        return []
+    out = []
+    for x in segs:
+        if not isinstance(x, dict):
+            continue
+        out.append({
+            "topic": str(x.get("topic") or "").strip(),
+            "start": x.get("start"),
+            "end": x.get("end"),
+            "phase": x.get("phase"),
+        })
+    return out
+
+
+def _normalize_topic_segments(segs: list[dict], duration_s: float) -> list[dict]:
+    """分段后处理：校验/夹取到 [0, duration]，合并同名同阶段相邻段，空洞并入前段、
+    重叠让后段，最终铺满整场会议（时间轴条不缺不叠）。LLM 只给初值，形状由代码保证。"""
+    if duration_s <= 0:
+        return []
+    cleaned = []
+    for s in segs:
+        try:
+            st, en = float(s.get("start")), float(s.get("end"))
+        except (TypeError, ValueError):
+            continue
+        topic = str(s.get("topic") or "").strip()[:40]
+        if not topic:
+            continue
+        st, en = max(0.0, min(st, duration_s)), max(0.0, min(en, duration_s))
+        if en - st < 5:
+            continue
+        phase = s.get("phase") if s.get("phase") in TOPIC_PHASES else "讨论"
+        cleaned.append({"topic": topic, "start": round(st, 1), "end": round(en, 1), "phase": phase})
+    cleaned.sort(key=lambda x: x["start"])
+    merged = []
+    for seg in cleaned:
+        if (merged and seg["topic"] == merged[-1]["topic"] and seg["phase"] == merged[-1]["phase"]
+                and seg["start"] - merged[-1]["end"] <= 60):
+            merged[-1]["end"] = max(merged[-1]["end"], seg["end"])
+        else:
+            merged.append(dict(seg))
+    if not merged:
+        return []
+    merged[0]["start"] = 0.0
+    for i in range(1, len(merged)):
+        if merged[i]["start"] > merged[i - 1]["end"]:
+            merged[i - 1]["end"] = merged[i]["start"]  # 空洞并入前段
+        else:
+            merged[i]["start"] = merged[i - 1]["end"]  # 重叠：后段让位（可能被吞成 0 长）
+    merged = [s for s in merged if s["end"] - s["start"] >= 5]
+    if not merged:
+        return []
+    merged[-1]["end"] = round(duration_s, 1)
+    return [s for s in merged if s["end"] - s["start"] >= 5]
+
+
+def segment_topics(sentences: list[dict], cfg: LLMConfig, on_log=None) -> list[dict]:
+    """议题分段：输入时间轴骨架，输出归一化的 [{topic, start, end, phase}]（秒）。
+    长会按 ~25 分钟窗口 map（各组独立打标）后统一合并边界。单组失败跳过不致命，
+    整体失败返回 []（详情页仍可手动生成/编辑）。"""
+    def _log(level, msg):
+        if on_log:
+            try:
+                on_log(level, msg)
+            except Exception:
+                pass
+    if not sentences:
+        return []
+    duration_s = max((s.get("end") or s.get("start") or 0) for s in sentences) / 1000.0
+    lines = build_timeline_skeleton(sentences).splitlines()
+    if not lines:
+        return []
+    # map 分组：窗口跨越或首行即新组
+    groups = []
+    cur_lines, first = [], None
+    for ln in lines:
+        t = _skeleton_line_start_sec(ln)
+        if cur_lines and t - first >= _TOPIC_MAP_WINDOW_S:
+            groups.append((first, cur_lines))
+            cur_lines, first = [], None
+        if first is None:
+            first = t
+        cur_lines.append(ln)
+    if cur_lines:
+        groups.append((first, cur_lines))
+    starts = [g[0] for g in groups] + [duration_s]
+    all_segs = []
+    _log("info", f"议题分段: 共 {len(groups)} 组, 模型 {_model_name(cfg)}")
+    for i, (first_sec, grp) in enumerate(groups):
+        span = max(60.0, starts[i + 1] - first_sec)
+        _log("info", f"议题分段第 {i + 1}/{len(groups)} 组 ...")
+        prompt = SEGMENT_TOPICS_PROMPT.format(
+            input="\n".join(grp),
+            duration_min=max(1, round(span / 60)),
+            duration_sec=int(span),
+            first_sec=int(first_sec),
+        )
+        try:
+            raw = _chat_retry(prompt, cfg, json_mode=True)
+        except Exception as e:
+            _log("warn", f"议题分段第 {i + 1} 组失败（{e}），跳过该组")
+            continue
+        all_segs.extend(_parse_topic_segments(raw))
+    segs = _normalize_topic_segments(all_segs, duration_s)
+    _log("info", f"议题分段完成: {len(segs)} 段议题")
+    return segs

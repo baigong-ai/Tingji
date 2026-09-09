@@ -64,13 +64,14 @@ function fmtDate(iso) {
 function statusLabel(s) {
   return {
     pending: '排队', converting: '转换中', asr_running: '识别中', asr_done: '待整理',
-    live_recording: '实时中', llm_polishing: '整理中', llm_summarizing: '总结中', done: '完成', error: '失败',
+    live_recording: '实时中', llm_polishing: '整理中', llm_summarizing: '总结中',
+    llm_topics: '议题分段中', done: '完成', error: '失败',
   }[s] || s;
 }
 
 // §7: "处理中"状态集合收敛到一处（app.js / meeting.js 原各声明一份且内容不一，
 // app.js 那份还漏了 live_recording）。
-const PROCESSING_STATUSES = ['pending', 'converting', 'asr_running', 'live_recording', 'llm_polishing', 'llm_summarizing'];
+const PROCESSING_STATUSES = ['pending', 'converting', 'asr_running', 'live_recording', 'llm_polishing', 'llm_summarizing', 'llm_topics'];
 function isProcessingStatus(s) { return PROCESSING_STATUSES.includes(s); }
 
 // === U3/U4：统一的模态焦点管理 + 消息对话框（替代原生 alert/confirm/prompt） ===

@@ -281,3 +281,95 @@ def test_finalize_live_except_sets_spk_zero(data_dir, monkeypatch):
     # B12: streaming sentences all have spk=0 → set() would wrongly give 1; expect 0.
     assert raw["spk_count"] == 0
     assert storage.get_meeting(mid)["meta"]["status"] == "asr_done"
+
+
+# --- v0.7 (3.3): retry_llm 的议题阶段 -----------------------------------------
+
+def _meeting_with_raw(data_dir, name="t"):
+    src = data_dir.parent / "a.wav"
+    src.write_bytes(b"x")
+    mid = storage.create_meeting(name, str(src), "wav")
+    storage.save_raw(mid, {"text": "x", "sentences": [
+        {"text": "hi", "start": 0, "end": 1000, "spk": 0}], "spk_count": 1})
+    return mid
+
+
+def test_retry_llm_runs_topics_after_summarize(data_dir, monkeypatch):
+    mid = _meeting_with_raw(data_dir, "alpha")
+    called = []
+
+    async def polish(task_id, meeting_id, cfg):
+        pass
+
+    async def summarize(task_id, meeting_id, cfg):
+        pass
+
+    async def topics(task_id, meeting_id, cfg):
+        called.append(meeting_id)
+
+    monkeypatch.setattr(tasks, "_run_polish", polish)
+    monkeypatch.setattr(tasks, "_run_summarize", summarize)
+    monkeypatch.setattr(tasks, "_run_topics", topics)
+    asyncio.run(tasks.retry_llm(mid, cfg=None))
+    assert called == [mid]
+    assert storage.get_meeting(mid)["meta"]["status"] == "done"
+
+
+def test_retry_llm_topics_failure_is_not_fatal(data_dir, monkeypatch):
+    mid = _meeting_with_raw(data_dir, "beta")
+
+    async def boom(task_id, meeting_id, cfg):
+        raise RuntimeError("segment failed")
+
+    monkeypatch.setattr(tasks, "_run_polish", mock.AsyncMock())
+    monkeypatch.setattr(tasks, "_run_summarize", mock.AsyncMock())
+    monkeypatch.setattr(tasks, "_run_topics", boom)
+    asyncio.run(tasks.retry_llm(mid, cfg=None))
+    # 议题失败只记 warn，会议仍到 done
+    assert storage.get_meeting(mid)["meta"]["status"] == "done"
+    assert any("议题" in l["msg"] for l in storage.read_log_lines(mid))
+
+
+def test_run_topics_skips_when_manual(data_dir, monkeypatch):
+    mid = _meeting_with_raw(data_dir)
+    storage.save_topics(mid, {"segments": [{"topic": "A", "start": 0, "end": 1, "phase": "讨论"}], "manual": True})
+    must_not_run = mock.Mock(side_effect=AssertionError("segment_topics must not be called"))
+    monkeypatch.setattr(tasks.llm, "segment_topics", must_not_run)
+    tid = tasks.register_task(mid)["task_id"]
+    asyncio.run(tasks._run_topics(tid, mid, cfg=None))
+    must_not_run.assert_not_called()
+    assert storage.get_meeting(mid)["meta"]["status"] != "llm_topics"
+
+
+def test_run_topics_saves_segments(data_dir, monkeypatch):
+    mid = _meeting_with_raw(data_dir)
+    monkeypatch.setattr(tasks.llm, "segment_topics",
+                        lambda s, cfg, on_log=None: [{"topic": "议题A", "start": 0, "end": 1, "phase": "讨论"}])
+    tid = tasks.register_task(mid)["task_id"]
+    asyncio.run(tasks._run_topics(tid, mid, cfg=mock.Mock()))
+    t = storage.load_topics(mid)
+    assert t["manual"] is False and t["segments"][0]["topic"] == "议题A"
+    assert storage.get_meeting(mid)["meta"]["status"] == "llm_topics"
+
+
+def test_generate_topics_restores_previous_status(data_dir, monkeypatch):
+    mid = _meeting_with_raw(data_dir)
+    storage.update_meta(mid, status="done")
+    monkeypatch.setattr(tasks, "_run_topics", mock.AsyncMock())
+    asyncio.run(tasks.generate_topics(mid, cfg=None))
+    # 单独生成不吞掉会议终态
+    assert storage.get_meeting(mid)["meta"]["status"] == "done"
+
+
+def test_generate_topics_failure_keeps_status(data_dir, monkeypatch):
+    mid = _meeting_with_raw(data_dir)
+    storage.update_meta(mid, status="done")
+
+    async def boom(task_id, meeting_id, cfg):
+        raise RuntimeError("llm down")
+
+    monkeypatch.setattr(tasks, "_run_topics", boom)
+    tid = tasks.register_task(mid)["task_id"]
+    asyncio.run(tasks.generate_topics(mid, cfg=None, task_id=tid))
+    assert storage.get_meeting(mid)["meta"]["status"] == "done"
+    assert tasks.get_progress(tid)["status"] == "error"
