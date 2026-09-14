@@ -230,6 +230,13 @@ def test_run_polish_sets_and_clears_polish_warning(data_dir, monkeypatch):
     asyncio.run(tasks._run_polish(tid, mid, cfg))
     assert storage.get_meeting(mid)["meta"]["polish_warning"]
 
+    # 用户点过 × 关闭横幅后，重新整理又触发告警：新告警必须重新弹出
+    storage.update_meta(mid, polish_warning_dismissed=True)
+    asyncio.run(tasks._run_polish(tid, mid, cfg))
+    meta = storage.get_meeting(mid)["meta"]
+    assert meta["polish_warning"]
+    assert meta["polish_warning_dismissed"] is False
+
     fake_polish.info = {"flagged": 0, "total": 1, "similarity": 0.0}
     asyncio.run(tasks._run_polish(tid, mid, cfg))
     assert storage.get_meeting(mid)["meta"]["polish_warning"] is None

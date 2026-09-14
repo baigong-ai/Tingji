@@ -909,6 +909,16 @@ async def resume_meeting(meeting_id: str, background_tasks: BackgroundTasks):
     return {"ok": False, "reason": "no_action", "status": status}
 
 
+@app.post("/api/meetings/{meeting_id}/dismiss-polish-warning")
+async def dismiss_polish_warning(meeting_id: str):
+    """Dismiss the fake-polish banner. Persisted on meta so it stays hidden
+    across reloads; a new flagged polish run resets the flag and re-shows."""
+    if storage.get_meeting(meeting_id) is None:
+        raise HTTPException(404)
+    storage.update_meta(meeting_id, polish_warning_dismissed=True)
+    return {"ok": True}
+
+
 @app.put("/api/meetings/{meeting_id}/speakers")
 async def rename_speakers(meeting_id: str, payload: dict):
     if storage.get_meeting(meeting_id) is None:

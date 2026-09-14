@@ -574,6 +574,19 @@ def test_resume_running_unrefined_live_uses_recover_not_plain_pipeline(client, m
     assert actions == ["recover"]
 
 
+def test_dismiss_polish_warning_persists(client):
+    mid = _upload_with_raw(client)
+    storage.update_meta(mid, polish_warning="模型疑似未实际整理")
+    r = client.post(f"/api/meetings/{mid}/dismiss-polish-warning")
+    assert r.status_code == 200 and r.json()["ok"] is True
+    # 关闭状态持久化：重新拉取 meta 仍然带着，前端据此不再渲染横幅
+    meta = client.get(f"/api/meetings/{mid}").json()["meta"]
+    assert meta["polish_warning_dismissed"] is True
+    assert meta["polish_warning"]  # 告警文本保留，只是不再展示
+    # 未知会议 404
+    assert client.post("/api/meetings/no-such-meeting/dismiss-polish-warning").status_code == 404
+
+
 def test_browse_lists_only_subdirs(client, tmp_path):
     (tmp_path / "subA").mkdir()
     (tmp_path / "subB").mkdir()

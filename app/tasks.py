@@ -285,9 +285,10 @@ async def _run_polish(task_id, meeting_id, cfg) -> None:
         msg = (f"整理稿与原文几乎一致（{quality['flagged']}/{quality['total']} 段相似度 "
                f"{quality['similarity']:.0%}），模型疑似未实际整理。"
                "建议：到「设置」更换更强的模型（如 API 模式）后，点「重新整理」重试。")
-        storage.update_meta(meeting_id, polish_warning=msg)
+        # 新告警要重新弹出：上一次用户点过关闭不代表这次也看过
+        storage.update_meta(meeting_id, polish_warning=msg, polish_warning_dismissed=False)
     elif "flagged" in quality:
-        storage.update_meta(meeting_id, polish_warning=None)
+        storage.update_meta(meeting_id, polish_warning=None, polish_warning_dismissed=False)
     _record_timing(meeting_id, "polish", time.time() - t0)
     update(task_id, progress=POLISH_END)
 

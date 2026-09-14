@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title id="m-page-title">会议 · 听记</title>
   <link rel="stylesheet" href="/static/style.css?v=17">
-  <link rel="stylesheet" href="/static/meeting.css?v=21">
+  <link rel="stylesheet" href="/static/meeting.css?v=22">
 </head>
 <body>
   <header>
@@ -59,7 +59,10 @@
         </div>
         <div id="topic-timeline" class="topic-timeline" aria-label="议题时间轴，点击定位到该议题开头"></div>
       </div>
-      <div id="polish-warning" class="polish-warning hidden" role="alert"></div>
+      <div id="polish-warning" class="polish-warning hidden" role="alert">
+        <span id="polish-warning-text"></span>
+        <button id="polish-warning-close" type="button" class="polish-warning-close" aria-label="关闭告警" title="关闭告警">×</button>
+      </div>
     </div>
 
     <div class="meeting-sticky">
@@ -236,6 +239,6 @@
   <script src="/static/access.js?v=1"></script>
   <script src="/static/marked.min.js?v=1"></script>
   <script src="/static/common.js?v=5"></script>
-  <script src="/static/meeting.js?v=31"></script>
+  <script src="/static/meeting.js?v=32"></script>
 </body>
 </html>

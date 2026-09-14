@@ -249,6 +249,16 @@ resumeBtn.addEventListener('click', async () => {
     resumeBtn.textContent = '恢复任务';
   }
 });
+
+// 假整理告警可关闭：关闭状态落盘，重新整理产生新告警时会再次弹出
+document.getElementById('polish-warning-close').addEventListener('click', async () => {
+  try {
+    await fetch(`/api/meetings/${meetingId}/dismiss-polish-warning`, { method: 'POST' });
+  } catch (e) {
+    // 网络失败也先隐藏；下次加载按服务端状态重新渲染
+  }
+  document.getElementById('polish-warning').classList.add('hidden');
+});
 const polishSetupModal = document.getElementById('polish-setup-modal');
 function openPolishSetup() {
   const title = document.getElementById('polish-setup-title');
@@ -1579,8 +1589,9 @@ async function load() {
     if (tStr) metaLine += ' · ' + tStr;
     document.getElementById('m-meta').textContent = metaLine;
     const pwEl = document.getElementById('polish-warning');
-    if (meta.polish_warning) {
-      pwEl.textContent = meta.polish_warning;
+    const pwText = document.getElementById('polish-warning-text');
+    if (meta.polish_warning && !meta.polish_warning_dismissed) {
+      pwText.textContent = meta.polish_warning;
       pwEl.classList.remove('hidden');
     } else {
       pwEl.classList.add('hidden');
