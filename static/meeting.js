@@ -224,14 +224,15 @@ resumeBtn.addEventListener('click', async () => {
     } else if (d.action === 'mark_error') {
       await alertDialog('实时录音已中断，会议被标记为失败。');
       location.reload();
-    } else if ((d.action === 'run_pipeline' || d.action === 'retry_llm') && d.task_id) {
+    } else if ((d.action === 'run_pipeline' || d.action === 'retry_llm' || d.action === 'recover_live') && d.task_id) {
       resumeBtn.textContent = '恢复中…';
       await new Promise((resolve, reject) => {
         const timer = setInterval(async () => {
           try {
             const s = await fetch(`/api/tasks/${d.task_id}`).then(x => x.json());
             resumeBtn.textContent = `恢复中… ${s.progress}%`;
-            if (s.status === 'done') { clearInterval(timer); resolve(); }
+            // run_pipeline/recover_live 终态是 asr_done（识别完成即停，整理靠手动）
+            if (s.status === 'done' || s.status === 'asr_done') { clearInterval(timer); resolve(); }
             else if (s.status === 'error') { clearInterval(timer); reject(new Error(s.error || '处理失败')); }
           } catch (e) { clearInterval(timer); reject(e); }
         }, 2000);
@@ -1592,7 +1593,7 @@ async function load() {
       retryBtn.textContent = meta.status === 'asr_done' ? '开始整理'
         : (meta.status === 'done' ? '重新整理' : '重试 LLM');
     }
-    if (meta.status === 'error') resumeBtn.classList.remove('hidden');
+    if (meta.status === 'error' || meta.live_refined === false) resumeBtn.classList.remove('hidden');
     renderAll();
     pollStatusIfProcessing();
   } catch (e) {

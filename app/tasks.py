@@ -385,40 +385,120 @@ async def generate_topics(meeting_id: str, cfg, task_id: Optional[str] = None, f
     return task_id
 
 
-async def finalize_live(meeting_id: str, result: dict, pcm: bytes, sample_rate: int, cfg) -> None:
-    """Live stream stopped: persist audio + raw.json + meta(asr_done). Does not take _lock."""
+async def finalize_live(meeting_id: str, result: dict, pcm: bytes, sample_rate: int, cfg,
+                        task_id: Optional[str] = None) -> None:
+    """Live stream stopped: persist audio + streaming transcript immediately,
+    then upgrade with an offline second pass in the background.
+
+    The offline pass cold-loads the model (minutes on first run) and can stall
+    for a long time on a wedged GPU — the user must see their transcript and a
+    settled status the moment the meeting ends, not when the offline pass
+    finishes. If the refinement fails or times out, the streaming-quality
+    fallback stays on disk and the meeting still lands on asr_done.
+    """
     t0 = time.time()
     fname = storage.save_live_audio(meeting_id, pcm, sample_rate)
     duration_ms = (len(pcm) // 2) * 1000 // sample_rate
 
-    # Second offline pass: run the full ASR pipeline on the saved wav to get
-    # accurate text, timestamps, and speaker diarization.
-    mdir = storage.meeting_dir(meeting_id)
-    wav_path = str(mdir / fname)
-    loop = asyncio.get_running_loop()
-    try:
-        raw = await loop.run_in_executor(None, asr.transcribe, wav_path, cfg.asr, _log_cb(meeting_id))
-    except Exception as e:
-        append_log(meeting_id, "error", f"实时离线二次识别失败：{e}")
-        # Fallback to whatever the streaming engine produced. B12: 流式句的 spk
-        # 全是 0，取 set 会得到错误的 spk_count=1；这个 except 是"离线也失败"的
-        # 兜底，此时没有可信的说话人信息，直接置 0（详情页可后续手动重映射）。
-        sentences = result.get("sentences") or []
-        raw = {
-            "text": "".join(s.get("text", "") for s in sentences),
-            "sentences": sentences,
-            "spk_count": 0,
-        }
-
-    storage.save_raw(meeting_id, raw)
+    # Fallback raw.json from the streaming engine. Its sentences all carry
+    # spk=0 and estimated timestamps — B12: don't derive spk_count from a set
+    # of zeros, that would wrongly report 1 speaker.
+    sentences = result.get("sentences") or []
+    storage.save_raw(meeting_id, {
+        "text": "".join(s.get("text", "") for s in sentences),
+        "sentences": sentences,
+        "spk_count": 0,
+    })
     storage.update_meta(
         meeting_id,
         status="asr_done",
         audio_file=fname,
         audio_wav=fname,
         duration_ms=duration_ms,
-        spk_count=raw.get("spk_count", 0),
+        spk_count=0,
+        live_refined=False,
     )
     _record_timing(meeting_id, "live", time.time() - t0)
     append_log(meeting_id, "info",
-               f"实时记录完成：{len(raw.get('sentences', []))} 句，{raw.get('spk_count', 0)} 位说话人，{duration_ms / 1000:.0f}s")
+               f"实时记录已保存（{duration_ms / 1000:.0f}s，流式 {len(sentences)} 句），正在后台进行二次识别…")
+
+    refine = asyncio.create_task(_refine_live(meeting_id, fname, duration_ms, cfg, task_id))
+    _live_refine_tasks.add(refine)
+    refine.add_done_callback(_live_refine_tasks.discard)
+
+
+# Strong refs to in-flight refinement tasks: asyncio keeps only weakrefs to
+# tasks, so a GC pass could silently collect a refinement that still runs.
+_live_refine_tasks: set = set()
+
+# Bounds for the refinement wait. Generous on purpose: cold model load plus
+# slow devices are legit; the timeout only catches pathological native stalls.
+_REFINE_TIMEOUT_FLOOR = 2700.0   # 45min: cold load ~4min + slow-device margin
+_REFINE_TIMEOUT_CAP = 7200.0     # 2h: even CPU gets there; beyond that it's hung
+
+
+async def _refine_live(meeting_id: str, fname: str, duration_ms: int, cfg,
+                       task_id: Optional[str]) -> None:
+    """Offline second pass on the saved live wav; upgrades raw.json in place.
+
+    While it runs the meeting shows 识别中 (asr_running) and the fallback
+    transcript is already visible; on success the page auto-reloads into the
+    refined transcript (poll hits the asr_done terminal). A native GPU stall
+    cannot be interrupted in-process — the wait_for timeout only bounds how
+    long we leave the status on asr_running; the fallback data is already
+    safe either way.
+    """
+    if task_id is None:
+        task_id = register_task(meeting_id)["task_id"]
+    update(task_id, status="asr_running", step="实时二次识别")
+    storage.update_meta(meeting_id, status="asr_running")
+    mdir = storage.meeting_dir(meeting_id)
+    wav_path = str(mdir / fname)
+    loop = asyncio.get_running_loop()
+    # Generous on purpose: cold model load + slow devices are legit; the
+    # timeout only catches pathological native stalls.
+    timeout = min(max(_REFINE_TIMEOUT_FLOOR, estimate_total_seconds(duration_ms) * 4),
+                  _REFINE_TIMEOUT_CAP)
+    t0 = time.time()
+    try:
+        raw = await asyncio.wait_for(
+            loop.run_in_executor(None, asr.transcribe, wav_path, cfg.asr, _log_cb(meeting_id)),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        asr.clear_busy()  # worker thread never comes back; reset the phantom flag
+        append_log(meeting_id, "error",
+                   f"实时离线二次识别超时（>{timeout:.0f}s），已保留实时识别结果；可点「恢复任务」重试")
+        update(task_id, status="error", error="二次识别超时", step="二次识别超时")
+        storage.update_meta(meeting_id, status="asr_done")
+        return
+    except Exception as e:
+        append_log(meeting_id, "warn", f"实时离线二次识别失败：{e}，已保留实时识别结果")
+        update(task_id, status="error", error=str(e), step="二次识别失败")
+        storage.update_meta(meeting_id, status="asr_done")
+        return
+    storage.save_raw(meeting_id, raw)
+    storage.update_meta(meeting_id, status="asr_done",
+                        spk_count=raw.get("spk_count", 0), live_refined=True)
+    _record_timing(meeting_id, "live_asr", time.time() - t0)
+    append_log(meeting_id, "info",
+               f"二次识别完成：{len(raw.get('sentences', []))} 句，{raw.get('spk_count', 0)} 位说话人"
+               f"（耗时 {time.time() - t0:.0f}s）")
+    update(task_id, status="asr_done", progress=ASR_REAL_END, step="识别完成，待整理")
+
+
+async def recover_live(meeting_id: str, cfg, task_id: Optional[str] = None) -> str:
+    """Re-run the offline second pass for a live meeting whose wav was saved
+    but whose refinement never completed (service restart / native stall).
+
+    Wraps run_pipeline so meta.live_refined gets set; without that flag the
+    meeting would keep matching the "needs refinement" resume branch on every
+    cron pass and re-queue itself forever.
+    """
+    if task_id is None:
+        task_id = register_task(meeting_id)["task_id"]
+    await run_pipeline(meeting_id, cfg, task_id)
+    data = storage.get_meeting(meeting_id)
+    if data and (data.get("meta") or {}).get("status") == "asr_done":
+        storage.update_meta(meeting_id, live_refined=True, error=None)
+    return task_id

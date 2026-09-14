@@ -24,7 +24,7 @@ Built on [FunASR](https://github.com/modelscope/FunASR) (speech recognition + sp
 - **Bring-your-own LLM** — local Ollama, or any OpenAI-compatible API (GLM / DeepSeek / Qwen / Kimi / OpenAI …)
 - **Configure everything in the browser** — data directory, LLM, hotwords, summary templates are all set via the web UI, no file editing
 - **Export** `.md` / `.txt` / `.srt` (md export uses real speaker names)
-- **Live streaming transcription** — open the microphone during a meeting; when stopped it writes the same raw transcript + audio as the upload flow, then goes through the same proofread → polish → summarize pipeline. Standard mode (built-in engine, all platforms). Enhanced mode (GPU engine) is shelved for now; the live page ships Standard mode only
+- **Live streaming transcription** — open the microphone during a meeting; when stopped or disconnected, the transcript + audio are saved and shown immediately, then a background second pass upgrades them with accurate timestamps and speaker labels; after that, the same proofread → polish → summarize pipeline as uploads. Standard mode (built-in engine, all platforms). Enhanced mode (GPU engine) is shelved for now; the live page ships Standard mode only
 - **Meeting library management** — tag meetings and filter by tag, rename any finished meeting, delete to trash or permanently; the trash view can restore or permanently delete
 - **Edit the minutes afterwards** — both the polished text and the summary can be edited and saved (the summary supports per-section structured editing as well as plain markdown)
 - **Resume stuck tasks** — if a restart leaves a task stuck, click "Resume task" on the detail page; an optional hourly cron can do it automatically
@@ -91,7 +91,7 @@ Handy for keeping Tingji resident on a Mac/Linux box as your local transcription
 
 #### Auto-resume interrupted tasks (optional)
 
-A restart leaves in-flight tasks stuck in an intermediate status. Besides the manual "Resume task" button on the detail page, you can install an hourly cron to resume them automatically (meetings interrupted mid-live-recording are marked as failed):
+A restart leaves in-flight tasks stuck in an intermediate status. Besides the manual "Resume task" button on the detail page, you can install an hourly cron to resume them automatically (live meetings interrupted by a restart recover recognition from the saved audio; those without saved audio are marked as failed):
 
 ```bash
 crontab -l | { cat; echo '17 * * * * cd /path/to/Tingji && .venv/bin/python scripts/resume_tasks.py >> logs/resume.log 2>&1'; } | crontab -
@@ -126,9 +126,14 @@ A watcher checks every 60 s, so worst case add ~60 s. In a hurry, hit "Release m
 
 Don't judge "did unload work" by macOS RSS — check the model-state field in Settings → Service, or the `FunASR models unloaded (idle)` log line.
 
-## Project status (v0.7)
+## Project status (v0.7.1)
 
 The core pipeline works: upload → recognition (with speaker diarization + timestamps) → proofread → one-click polish + structured minutes (items timestamped) + topic timeline + personal notes; the meeting library supports tags, rename, delete, and trash restore; live streaming transcription (standard mode) is available.
+
+**New in v0.7.1 (live-save reliability)**:
+- **Transcript the moment the meeting ends** — when a live session stops or the connection drops, the audio + streaming transcript are saved and shown immediately; an offline second pass then runs in the background (status shows "Recognizing") and the page auto-reloads with the refined transcript (accurate timestamps + speaker labels) when it finishes. The proofread → polish → summarize flow is unchanged
+- **Fixed: meetings stuck in "live" after the meeting ended** — the meeting status used to update only after the offline second pass finished (including a multi-minute cold model load; GPU stalls could stretch this to ten-plus minutes), leaving the detail page empty in the meantime as if the record was lost, and a wedged recognition stalled the status forever. Status now settles within seconds, decoupled from the slow recognition
+- **Failure fallback** — if the second pass fails or times out, the streaming transcript is kept and "Resume task" on the detail page re-runs it; live meetings interrupted by a service restart recover recognition from the saved audio on disk instead of always reporting "recording lost"
 
 **New in v0.7 (the after-meeting layer: traceability, notes, topics)**:
 - **Timestamped minutes** — polished headings carry `[m:ss]` anchors; decisions / action items / open questions carry clickable timestamp chips that seek the audio; exports keep them inline. Items without timestamps (weak local models, older meetings) degrade gracefully
@@ -165,7 +170,7 @@ The core pipeline works: upload → recognition (with speaker diarization + time
 
 ## Live transcription
 
-In addition to "upload a recording then process it", Tingji supports live microphone transcription during meetings. When stopped, it writes the same raw transcript + audio as the upload flow, then goes through the same proofread → polish → summarize pipeline.
+In addition to "upload a recording then process it", Tingji supports live microphone transcription during meetings. When stopped or disconnected, the audio + streaming transcript are saved and shown immediately, with nothing to wait for; a background second pass then upgrades them with accurate timestamps and speaker labels and the page auto-reloads, after which the same proofread → polish → summarize pipeline as uploads applies.
 
 One engine ships today:
 

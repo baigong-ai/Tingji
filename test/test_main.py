@@ -515,6 +515,65 @@ def test_resume_live_recording_marks_error(client):
     assert storage.get_meeting(mid)["meta"]["status"] == "error"
 
 
+def test_resume_live_recording_with_saved_wav_recovers(client, monkeypatch):
+    """wav 已落盘但服务随后重启：从磁盘恢复二次识别，而不是按录音丢失报错。"""
+    calls = []
+
+    async def fake_recover(meeting_id, cfg, task_id=None):
+        calls.append((meeting_id, task_id))
+
+    monkeypatch.setattr(main.tasks, "recover_live", fake_recover)
+    mid = storage.create_live_meeting("live")
+    storage.save_live_audio(mid, b"\x00\x00" * 1600, 16000)
+    storage.update_meta(mid, status="live_recording")  # audio_file 还未写入
+    main.tasks._tasks.clear()  # simulate process restart after save
+    body = client.post(f"/api/meetings/{mid}/resume").json()
+    assert body["ok"] is True and body["action"] == "recover_live"
+    assert body["task_id"]
+    meta = storage.get_meeting(mid)["meta"]
+    assert meta["audio_file"] == "audio_live.wav"
+    assert calls and calls[0][1] == body["task_id"]
+    # endpoint 不应把已存录音的会议标 error
+    assert meta["status"] == "live_recording"
+
+
+def test_resume_asr_done_unrefined_live_recovers(client, monkeypatch):
+    """二次识别失败/中断后 meta 停在 asr_done + live_refined=False：resume 重跑离线识别。"""
+    calls = []
+
+    async def fake_recover(meeting_id, cfg, task_id=None):
+        calls.append(meeting_id)
+
+    monkeypatch.setattr(main.tasks, "recover_live", fake_recover)
+    mid = storage.create_live_meeting("live")
+    storage.save_live_audio(mid, b"\x00\x00" * 1600, 16000)
+    storage.update_meta(mid, status="asr_done", audio_file="audio_live.wav",
+                        audio_wav="audio_live.wav", live_refined=False)
+    main.tasks._tasks.clear()
+    body = client.post(f"/api/meetings/{mid}/resume").json()
+    assert body["ok"] is True and body["action"] == "recover_live"
+    assert calls == [mid]
+
+
+def test_resume_running_unrefined_live_uses_recover_not_plain_pipeline(client, monkeypatch):
+    """重启打断二次识别（status=asr_running）时，live 会议要走 recover_live，
+    否则 live_refined 永远不会被置上，cron 会反复重排。"""
+    actions = []
+
+    async def fake_recover(meeting_id, cfg, task_id=None):
+        actions.append("recover")
+
+    monkeypatch.setattr(main.tasks, "recover_live", fake_recover)
+    mid = storage.create_live_meeting("live")
+    storage.save_live_audio(mid, b"\x00\x00" * 1600, 16000)
+    storage.update_meta(mid, status="asr_running", audio_file="audio_live.wav",
+                        audio_wav="audio_live.wav", live_refined=False)
+    main.tasks._tasks.clear()
+    body = client.post(f"/api/meetings/{mid}/resume").json()
+    assert body["ok"] is True and body["action"] == "recover_live"
+    assert actions == ["recover"]
+
+
 def test_browse_lists_only_subdirs(client, tmp_path):
     (tmp_path / "subA").mkdir()
     (tmp_path / "subB").mkdir()

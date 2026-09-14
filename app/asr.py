@@ -50,6 +50,14 @@ def is_busy() -> bool:
     return _busy
 
 
+def clear_busy() -> None:
+    """Reset the in-flight flag when the caller abandons a transcription
+    (e.g. asyncio.wait_for timeout): the worker thread is stuck in native
+    code and will never reach its own ``finally``."""
+    global _busy
+    _busy = False
+
+
 def is_stream_busy() -> bool:
     return _stream_busy
 

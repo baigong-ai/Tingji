@@ -852,16 +852,25 @@ async def resume_meeting(meeting_id: str, background_tasks: BackgroundTasks):
     if any(st.get("meeting_id") == meeting_id and st.get("status") in _BUSY_STATUSES for st in tasks._tasks.values()):
         return {"ok": False, "reason": "already_running", "status": status}
 
+    live_wav_ready = (storage.meeting_dir(meeting_id) / "audio_live.wav").exists()
+    live_refinable = meta.get("live_refined") is False and live_wav_ready
+
     if status in {"pending", "converting", "asr_running"}:
+        action = tasks.recover_live if live_refinable else tasks.run_pipeline
         state = tasks.register_task(meeting_id)
-        background_tasks.add_task(tasks.run_pipeline, meeting_id, config, state["task_id"])
-        return {"ok": True, "action": "run_pipeline", "task_id": state["task_id"], "status": status}
+        background_tasks.add_task(action, meeting_id, config, state["task_id"])
+        return {"ok": True, "action": "recover_live" if live_refinable else "run_pipeline",
+                "task_id": state["task_id"], "status": status}
 
     if status in {"llm_polishing", "llm_summarizing", "llm_topics"}:
         task_id = _start_retry_llm(background_tasks, meeting_id)
         return {"ok": True, "action": "retry_llm", "task_id": task_id, "status": status}
 
     if status == "error":
+        if live_refinable:
+            state = tasks.register_task(meeting_id)
+            background_tasks.add_task(tasks.recover_live, meeting_id, config, state["task_id"])
+            return {"ok": True, "action": "recover_live", "task_id": state["task_id"], "status": status}
         err = (meta.get("error") or "").lower()
         # ASR-stage errors can be retried by re-running the pipeline.
         if any(k in err for k in ("convert", "asr", "识别", "音频")):
@@ -873,12 +882,29 @@ async def resume_meeting(meeting_id: str, background_tasks: BackgroundTasks):
         return {"ok": True, "action": "retry_llm", "task_id": task_id, "status": status}
 
     if status == "live_recording":
+        if live_wav_ready:
+            # The disconnect handler already persisted the wav and then the
+            # service died (or the refinement wedged): recover from disk
+            # instead of reporting the recording as lost.
+            if not meta.get("audio_file"):
+                storage.update_meta(meeting_id, audio_file="audio_live.wav",
+                                    audio_wav="audio_live.wav")
+            state = tasks.register_task(meeting_id)
+            background_tasks.add_task(tasks.recover_live, meeting_id, config, state["task_id"])
+            return {"ok": True, "action": "recover_live", "task_id": state["task_id"], "status": status}
         # Service restarted mid-recording: the PCM buffer lived only in memory
         # and is unrecoverable. Mark the meeting failed instead of leaving it
         # stuck in live_recording forever.
         storage.update_meta(meeting_id, status="error",
                             error="实时录音因服务重启中断，录音未能保存")
         return {"ok": True, "action": "mark_error", "status": "error"}
+
+    if status == "asr_done" and live_refinable:
+        # Refinement failed or was interrupted while the fallback transcript
+        # was already saved — offer a clean re-run of the offline pass.
+        state = tasks.register_task(meeting_id)
+        background_tasks.add_task(tasks.recover_live, meeting_id, config, state["task_id"])
+        return {"ok": True, "action": "recover_live", "task_id": state["task_id"], "status": status}
 
     return {"ok": False, "reason": "no_action", "status": status}
 
@@ -1466,6 +1492,11 @@ async def realtime_ws(ws: WebSocket, meeting_id: str):
     storage.update_meta(meeting_id, status="live_recording")
     tasks.append_log(meeting_id, "info", "实时记录开始")
     seen = 0
+    # Register a task for the live session: the detail-page log/progress can
+    # attach to it, and resume's already-running check recognizes the meeting
+    # so the hourly cron won't mistake a healthy recording for a stale one.
+    live_task_id = tasks.register_task(meeting_id)["task_id"]
+    tasks.update(live_task_id, status="live_recording", step="实时记录中")
 
     async def _send(obj: dict):
         try:
@@ -1502,20 +1533,25 @@ async def realtime_ws(ws: WebSocket, meeting_id: str):
 
         final = await engine.finalize()
         await tasks.finalize_live(meeting_id, stream.result_to_dict(final),
-                                  engine.pcm_bytes(), stream.SAMPLE_RATE, config)
+                                  engine.pcm_bytes(), stream.SAMPLE_RATE, config,
+                                  task_id=live_task_id)
         await _send({"type": "final", "meeting_id": meeting_id,
                      "sentences": final.sentences})
+        await ws.close()  # 干净收尾；客户端收到 final 即跳转，但避免裸断 TCP
     except WebSocketDisconnect:
         tasks.append_log(meeting_id, "warn", "实时连接断开，尝试保存已录制内容")
         try:
             snap = engine.snapshot()
             await tasks.finalize_live(meeting_id, stream.result_to_dict(snap),
-                                      engine.pcm_bytes(), stream.SAMPLE_RATE, config)
+                                      engine.pcm_bytes(), stream.SAMPLE_RATE, config,
+                                      task_id=live_task_id)
         except Exception as e:
             log.warning("finalize on disconnect failed: %s", e)
+            tasks.update(live_task_id, status="error", error=str(e), step="保存失败")
     except Exception as e:
         log.exception("realtime ws error")
         storage.update_meta(meeting_id, status="error", error=str(e))
+        tasks.update(live_task_id, status="error", error=str(e), step="失败")
         await _send({"type": "error", "message": str(e)})
     finally:
         try:

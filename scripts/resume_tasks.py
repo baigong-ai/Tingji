@@ -4,7 +4,8 @@
 Scans the data dir for meetings whose status indicates work should be in
 progress but which are not running in the service memory, then calls the
 resume endpoint. Meetings already running are left alone (the endpoint
-rejects them), meetings stuck in live_recording are marked as failed.
+rejects them). Live meetings stuck after a restart recover recognition from
+the saved audio_live.wav; only those with no saved audio are marked failed.
 
 Port / SSL / data_dir are read from config.yaml — the same file the service
 uses — so custom ports, HTTPS mode, and non-default data dirs all work.

@@ -1,4 +1,5 @@
 import asyncio
+from types import SimpleNamespace
 from unittest import mock
 
 import pytest
@@ -266,7 +267,7 @@ def test_prune_tasks_never_evicts_busy(monkeypatch):
     assert busy_ids[-1] in tasks._tasks
 
 
-# --- B12: finalize_live except branch sets spk_count=0 ----------------------
+# --- B12: finalize_live fallback keeps spk_count=0 ----------------------
 def test_finalize_live_except_sets_spk_zero(data_dir, monkeypatch):
     mid = _make_meeting(data_dir)
 
@@ -281,6 +282,128 @@ def test_finalize_live_except_sets_spk_zero(data_dir, monkeypatch):
     # B12: streaming sentences all have spk=0 → set() would wrongly give 1; expect 0.
     assert raw["spk_count"] == 0
     assert storage.get_meeting(mid)["meta"]["status"] == "asr_done"
+
+
+# --- v0.7.1: finalize persists the fallback synchronously, refines in background ---
+
+def _live_meeting(data_dir):
+    return storage.create_live_meeting("live-test")
+
+
+def test_finalize_live_persists_fallback_before_refinement(data_dir, monkeypatch):
+    """会议一结束就该看到流式稿和落定状态，而不是等离线二次识别跑完。"""
+    mid = _live_meeting(data_dir)
+    started = []
+
+    async def spy_refine(*a, **k):
+        started.append(True)
+        return None
+
+    monkeypatch.setattr(tasks, "_refine_live", spy_refine)
+    pcm = b"\x00\x00" * 32000  # 2s
+    result = {"sentences": [{"text": "你好", "start": 0, "end": 1000, "spk": 0}]}
+    asyncio.run(tasks.finalize_live(mid, result, pcm, 16000, cfg=None))
+    meta = storage.get_meeting(mid)["meta"]
+    raw = storage.get_meeting(mid)["raw"]
+    assert meta["status"] == "asr_done"
+    assert meta["audio_file"] == "audio_live.wav"
+    assert meta["duration_ms"] == 2000
+    assert meta["live_refined"] is False
+    assert raw["spk_count"] == 0
+    assert raw["sentences"][0]["text"] == "你好"
+    # refinement was queued, not awaited
+    assert started == [True]
+
+
+def test_refine_live_upgrades_raw(data_dir, monkeypatch):
+    mid = _live_meeting(data_dir)
+    storage.save_live_audio(mid, b"\x00\x00" * 16000, 16000)
+    storage.update_meta(mid, status="asr_done", audio_file="audio_live.wav",
+                        audio_wav="audio_live.wav", live_refined=False)
+
+    def fake_transcribe(wav_path, cfg, on_log=None):
+        return {"text": " refined", "sentences": [
+            {"text": "refined", "start": 0, "end": 900, "spk": 2}], "spk_count": 3}
+
+    monkeypatch.setattr(tasks.asr, "transcribe", fake_transcribe)
+    asyncio.run(tasks._refine_live(mid, "audio_live.wav", 1000, cfg=SimpleNamespace(asr=None), task_id=None))
+    raw = storage.get_meeting(mid)["raw"]
+    meta = storage.get_meeting(mid)["meta"]
+    assert raw["sentences"][0]["text"] == "refined"
+    assert raw["spk_count"] == 3
+    assert meta["status"] == "asr_done"
+    assert meta["live_refined"] is True
+    assert meta["spk_count"] == 3
+    tid = tasks.latest_task_id(mid)
+    assert tasks.get_progress(tid)["status"] == "asr_done"
+
+
+def test_refine_live_failure_keeps_fallback(data_dir, monkeypatch):
+    mid = _live_meeting(data_dir)
+    storage.save_live_audio(mid, b"\x00\x00" * 16000, 16000)
+    fallback = {"text": "fallback", "sentences": [
+        {"text": "fallback", "start": 0, "end": 1000, "spk": 0}], "spk_count": 0}
+    storage.save_raw(mid, fallback)
+    storage.update_meta(mid, status="asr_done", audio_file="audio_live.wav",
+                        audio_wav="audio_live.wav", live_refined=False)
+
+    def boom(*a, **k):
+        raise RuntimeError("offline asr failed")
+
+    monkeypatch.setattr(tasks.asr, "transcribe", boom)
+    asyncio.run(tasks._refine_live(mid, "audio_live.wav", 1000, cfg=SimpleNamespace(asr=None), task_id=None))
+    raw = storage.get_meeting(mid)["raw"]
+    meta = storage.get_meeting(mid)["meta"]
+    assert raw == fallback  # untouched fallback stays on disk
+    assert meta["status"] == "asr_done"
+    assert meta["live_refined"] is False  # recoverable via resume
+
+
+def test_refine_live_timeout_keeps_fallback_and_clears_busy(data_dir, monkeypatch):
+    import time as _time
+    mid = _live_meeting(data_dir)
+    storage.save_live_audio(mid, b"\x00\x00" * 16000, 16000)
+    storage.update_meta(mid, status="asr_done", audio_file="audio_live.wav",
+                        audio_wav="audio_live.wav", live_refined=False)
+
+    def stuck(*a, **k):
+        _time.sleep(3)  # simulates a worker thread blocked in native code
+
+    cleared = []
+    monkeypatch.setattr(tasks.asr, "transcribe", stuck)
+    monkeypatch.setattr(tasks.asr, "clear_busy", lambda: cleared.append(True))
+    monkeypatch.setattr(tasks, "_REFINE_TIMEOUT_FLOOR", 0.05)
+    monkeypatch.setattr(tasks, "estimate_total_seconds", lambda ms: 0.0)
+    asyncio.run(tasks._refine_live(mid, "audio_live.wav", 1000, cfg=SimpleNamespace(asr=None), task_id=None))
+    meta = storage.get_meeting(mid)["meta"]
+    assert meta["status"] == "asr_done"
+    assert meta["live_refined"] is False
+    assert cleared == [True]
+    tid = tasks.latest_task_id(mid)
+    assert tasks.get_progress(tid)["status"] == "error"
+
+
+def test_recover_live_sets_live_refined(data_dir, monkeypatch):
+    """recover_live 包装 run_pipeline：成功后必须落 live_refined=True，
+    否则整点 cron 会反复把同一会议重新排队。"""
+    mid = _live_meeting(data_dir)
+    src = data_dir.parent / "a.wav"
+    src.write_bytes(b"x")
+    storage.update_meta(mid, audio_file="a.wav")
+
+    async def fake_convert(task_id, meeting_id, cfg):
+        pass
+
+    async def fake_asr(task_id, meeting_id, cfg):
+        storage.save_raw(meeting_id, {"text": "x", "sentences": [
+            {"text": "x", "start": 0, "end": 1000, "spk": 0}], "spk_count": 1})
+
+    monkeypatch.setattr(tasks, "_convert_audio", fake_convert)
+    monkeypatch.setattr(tasks, "_run_asr", fake_asr)
+    asyncio.run(tasks.recover_live(mid, cfg=None))
+    meta = storage.get_meeting(mid)["meta"]
+    assert meta["status"] == "asr_done"
+    assert meta["live_refined"] is True
 
 
 # --- v0.7 (3.3): retry_llm 的议题阶段 -----------------------------------------
